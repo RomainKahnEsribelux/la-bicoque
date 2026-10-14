@@ -1,0 +1,11 @@
+# Optional: run Directus with Docker instead of npm
+services:
+  directus:
+    image: directus/directus:latest
+    ports:
+      - "8055:8055"
+    env_file: .env
+    volumes:
+      - ./data:/directus/database
+      - ./uploads:/directus/uploads
+      - ./extensions:/directus/extensions

@@ -1,0 +1,14 @@
+{
+  "folders": [
+    { "name": "root", "path": "." },
+    { "name": "frontend", "path": "frontend" },
+    { "name": "cms", "path": "cms" },
+    { "name": "supabase", "path": "supabase" }
+  ],
+  "settings": {
+    "files.exclude": { "**/node_modules": true }
+  },
+  "extensions": {
+    "recommendations": ["bradlc.vscode-tailwindcss", "dbaeumer.vscode-eslint", "supabase.vscode-supabase-extension"]
+  }
+}

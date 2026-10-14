@@ -1,0 +1,11 @@
+{
+  "name": "website-cms",
+  "private": true,
+  "scripts": {
+    "bootstrap": "directus bootstrap",
+    "start": "directus start"
+  },
+  "dependencies": {
+    "directus": "latest"
+  }
+}
