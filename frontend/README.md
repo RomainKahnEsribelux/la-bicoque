@@ -109,4 +109,28 @@ successful sign-in: this is not an authentication failure. Setting up bookings
 requires the separate backend procedure; do not blindly rerun an existing
 migration.
 
-No deployment has been performed yet.
+## Cloudflare Workers deployment
+
+The current hosting target is the `la-bicoque` Worker at
+<https://la-bicoque.romain-kahn.workers.dev/>. Its Git build settings must use:
+
+| Setting | Value |
+|---|---|
+| Production branch | `master` |
+| Root directory | `frontend` |
+| Build command | `npm run build` |
+| Deploy command | `npx wrangler deploy` |
+
+The checked-in `wrangler.jsonc` publishes only `dist` and enables the SPA fallback
+for direct navigation and refreshes on React routes. Do not override its assets
+directory with the source directory in the deploy command.
+
+Set `NODE_VERSION=24`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY` in
+**Settings > Build > Build variables and secrets** before rebuilding. Runtime
+Worker variables do not configure the Vite bundle. Use only a public Supabase
+key, as described above.
+
+After changing settings, run a new build and inspect its deployment logs. A
+successful build must publish an HTML entry loading `/assets/*.js`, never
+`/src/main.tsx`. Verify the live login flow separately; a successful compilation
+alone does not verify production authentication.
