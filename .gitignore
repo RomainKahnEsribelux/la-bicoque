@@ -2,5 +2,6 @@ node_modules
 dist
 .env
 .env.local
+.vscode/mcp.json
 *.local
 .DS_Store

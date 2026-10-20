@@ -1,0 +1,162 @@
+import { supabase } from './supabase'
+
+export interface BookingRequest {
+  id: string
+  guest_first_name: string
+  guest_last_name: string
+  guest_email: string
+  check_in: string
+  check_out: string
+  guest_count: number
+  planned_arrival_time: string
+  planned_departure_time: string
+  guest_note: string | null
+  status: 'pending' | 'confirmed' | 'rejected' | 'cancelled'
+  created_at: string
+}
+
+export interface OccupiedDates {
+  start_date: string
+  end_date: string
+  guest_name: string | null
+}
+
+export interface OwnerOccupiedPeriod extends Omit<OccupiedDates, 'guest_name'> {
+  id: string
+  source_type: 'booking' | 'owner_block'
+  note: string | null
+  booking_id: string | null
+}
+
+function getClient() {
+  if (!supabase) throw new Error('Supabase n’est pas configuré.')
+  return supabase
+}
+
+export function getBookingErrorMessage(error: { message: string; code?: string }) {
+  const messages: Record<string, string> = {
+    house_capacity_not_configured: 'Le propriétaire doit encore définir la capacité de la maison.',
+    guest_count_exceeds_capacity: 'Le nombre de voyageurs dépasse la capacité de la maison.',
+    occupied_dates_conflict: 'Ces dates ne sont plus disponibles. Choisissez d’autres dates.',
+    invalid_stay_dates: 'Choisissez une arrivée à partir d’aujourd’hui et un départ après l’arrivée.',
+    invalid_guest_count: 'Indiquez un nombre de voyageurs valide.',
+    invalid_guest_name: 'Indiquez un prénom et un nom de 80 caractères maximum chacun.',
+    arrival_and_departure_times_required: 'Indiquez une heure d’arrivée et une heure de départ prévues.',
+    booking_times_must_be_on_hour: 'Choisissez une heure pleine pour l’arrivée et le départ.',
+    owner_claim_requires_single_user: 'Le propriétaire doit activer son compte avant la création d’autres comptes.',
+    owner_already_claimed: 'Le compte propriétaire a déjà été activé.',
+    owner_required: 'Cette action est réservée au propriétaire.',
+    invalid_house_capacity: 'La capacité doit être un nombre positif.',
+    booking_request_not_found: 'Cette demande n’existe plus.',
+    booking_request_not_pending: 'Cette demande a déjà été traitée.',
+    invalid_block_dates: 'Choisissez une période à bloquer valide, à partir d’aujourd’hui.',
+    owner_block_not_found: 'Cette période bloquée n’existe plus.',
+  }
+
+  if (error.message.includes('account_email_required')) {
+    return 'Ton compte doit avoir une adresse e-mail confirmée pour envoyer une demande.'
+  }
+  const knownMessage = Object.entries(messages).find(([key]) => error.message.includes(key))
+  if (knownMessage) return knownMessage[1]
+  if (error.code === '23P01') return messages.occupied_dates_conflict
+  return 'Une erreur est survenue. Réessayez. Si le problème persiste, contactez le propriétaire.'
+}
+
+export async function isSiteOwner() {
+  const { data, error } = await getClient().rpc('is_site_owner')
+  if (error) throw new Error(getBookingErrorMessage(error))
+  if (typeof data !== 'boolean') throw new Error('Impossible de vérifier les droits propriétaire. Réessaie.')
+  return data
+}
+
+export async function getBookingCapacity() {
+  const { data, error } = await getClient().rpc('get_booking_capacity')
+  if (error) throw new Error(getBookingErrorMessage(error))
+  if (data !== null && (!Number.isInteger(data) || data <= 0)) {
+    throw new Error('La capacité enregistrée dans la base de données est invalide.')
+  }
+  return data as number | null
+}
+
+export async function getOccupiedDates() {
+  const { data, error } = await getClient().rpc('get_occupied_dates')
+  if (error) throw new Error(getBookingErrorMessage(error))
+  if (!Array.isArray(data)) throw new Error('Impossible de lire les dates indisponibles. Réessaie.')
+  return data as OccupiedDates[]
+}
+
+export async function getMyBookingRequests() {
+  const { data, error } = await getClient()
+    .from('booking_requests')
+    .select('id, guest_first_name, guest_last_name, guest_email, check_in, check_out, guest_count, planned_arrival_time, planned_departure_time, guest_note, status, created_at')
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(getBookingErrorMessage(error))
+  if (!Array.isArray(data)) throw new Error('Impossible de lire les demandes de réservation. Réessaie.')
+  return data as BookingRequest[]
+}
+
+export async function submitBookingRequest(input: {
+  guestFirstName: string
+  guestLastName: string
+  checkIn: string
+  checkOut: string
+  guestCount: number
+  arrivalTime: string
+  departureTime: string
+  note: string
+}) {
+  const { data, error } = await getClient().rpc('submit_booking_request', {
+    p_guest_first_name: input.guestFirstName.trim(),
+    p_guest_last_name: input.guestLastName.trim(),
+    p_check_in: input.checkIn,
+    p_check_out: input.checkOut,
+    p_guest_count: input.guestCount,
+    p_planned_arrival_time: input.arrivalTime,
+    p_planned_departure_time: input.departureTime,
+    p_guest_note: input.note.trim() || null,
+  })
+  if (error) throw new Error(getBookingErrorMessage(error))
+  if (typeof data !== 'string') throw new Error('La demande n’a pas pu être confirmée par la base de données. Réessaie.')
+  return data as string
+}
+
+export async function claimSiteOwner() {
+  const { error } = await getClient().rpc('claim_site_owner')
+  if (error) throw new Error(getBookingErrorMessage(error))
+}
+
+export async function setHouseCapacity(capacity: number) {
+  const { error } = await getClient().rpc('owner_set_house_capacity', { p_max_guests: capacity })
+  if (error) throw new Error(getBookingErrorMessage(error))
+}
+
+export async function confirmBooking(id: string) {
+  const { error } = await getClient().rpc('owner_confirm_booking', { p_booking_id: id })
+  if (error) throw new Error(getBookingErrorMessage(error))
+}
+
+export async function rejectBooking(id: string) {
+  const { error } = await getClient().rpc('owner_reject_booking', { p_booking_id: id })
+  if (error) throw new Error(getBookingErrorMessage(error))
+}
+
+export async function addOwnerBlock(input: { startDate: string; endDate: string; note: string }) {
+  const { error } = await getClient().rpc('owner_add_block', {
+    p_start_date: input.startDate,
+    p_end_date: input.endDate,
+    p_note: input.note.trim() || null,
+  })
+  if (error) throw new Error(getBookingErrorMessage(error))
+}
+
+export async function removeOwnerBlock(id: string) {
+  const { error } = await getClient().rpc('owner_remove_block', { p_block_id: id })
+  if (error) throw new Error(getBookingErrorMessage(error))
+}
+
+export async function getOwnerOccupiedPeriods() {
+  const { data, error } = await getClient().rpc('owner_list_occupied_periods')
+  if (error) throw new Error(getBookingErrorMessage(error))
+  if (!Array.isArray(data)) throw new Error('Impossible de lire le calendrier propriétaire. Réessaie.')
+  return data as OwnerOccupiedPeriod[]
+}

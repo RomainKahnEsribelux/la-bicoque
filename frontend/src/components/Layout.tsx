@@ -1,21 +1,55 @@
 import { Link, Outlet } from 'react-router-dom'
+import { useState } from 'react'
+import { useAuth } from '../auth/AuthContext'
+import { supabase } from '../lib/supabase'
 
 export default function Layout() {
+  const { session, loading, error: authError } = useAuth()
+  const [signingOut, setSigningOut] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [year] = useState(() => new Date().getFullYear())
+
+  async function signOut() {
+    if (!supabase || signingOut) return
+    setSigningOut(true)
+    setError(null)
+    try {
+      const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' })
+      if (signOutError) setError('D\u00e9connexion impossible. Veuillez r\u00e9essayer.')
+    } catch {
+      setError('Le service est inaccessible. Veuillez r\u00e9essayer la d\u00e9connexion.')
+    } finally {
+      setSigningOut(false)
+    }
+  }
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800">
-      <header className="bg-white shadow-sm">
-        <nav className="mx-auto max-w-5xl flex items-center justify-between p-4">
-          <Link to="/" className="text-xl font-bold">Mon site</Link>
-          <div className="flex gap-6">
-            <Link to="/" className="hover:text-indigo-600">Accueil</Link>
-            <Link to="/reservation" className="hover:text-indigo-600">Réservation</Link>
+    <div className="flex min-h-screen flex-col text-slate-800">
+      <header className="site-header">
+        <nav aria-label="Navigation principale" className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <Link to="/" className="site-brand text-2xl font-bold">La bicoque</Link>
+          <div className="flex flex-wrap items-center gap-4 sm:gap-7">
+            <Link to="/" className="site-nav-link">Accueil</Link>
+            <Link to="/reservation" className="site-nav-link">Réservation</Link>
+            {!loading && !authError && (session
+              ? <>
+                  <Link to="/gestion" className="site-nav-link">Gestion</Link>
+                  <button type="button" onClick={signOut} disabled={signingOut} className="site-nav-link disabled:opacity-60">
+                    {signingOut ? 'D\u00e9connexion...' : 'Se d\u00e9connecter'}
+                  </button>
+                </>
+              : <Link to="/connexion" className="site-nav-link">Connexion</Link>)}
           </div>
         </nav>
       </header>
-      <main className="flex-1 mx-auto w-full max-w-5xl p-4">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+        {error && <p role="alert" className="mb-4 text-red-700">{error}</p>}
+        {authError && <p role="status" className="mb-4 text-red-700">Le service de connexion est indisponible.</p>}
         <Outlet />
       </main>
-      <footer className="text-center text-sm text-slate-500 p-4">© {new Date().getFullYear()}</footer>
+      <footer className="border-t border-[#5b5d43]/15 px-4 py-5 text-center text-sm text-slate-500">
+        La bicoque <span aria-hidden="true">·</span> © {year}
+      </footer>
     </div>
   )
 }
