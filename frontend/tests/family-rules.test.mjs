@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { brusselsToday, sixMonthsFrom, familyYear, dateBefore, remainingCapacity, stayHasConflict } from '../src/lib/familyRules.ts'
+import { brusselsToday, sixMonthsFrom, familyYear, dateBefore, remainingCapacity, stayHasConflict, stayStatus, cancellationAllowed, confirmationEligibility, formatMoney } from '../src/lib/familyRules.ts'
 
 test('calendar month clamping, leap days and family year', () => {
   assert.equal(sixMonthsFrom('2026-08-31'), '2027-02-28')
@@ -28,4 +28,21 @@ test('shared capacity counts only overlapping nights and exclusive stays block',
   assert.equal(stayHasConflict('2026-11-01', '2026-11-04', occupied, 10, 'open'), true)
   assert.equal(stayHasConflict('2026-11-05', '2026-11-06', occupied, 30, 'exclusive'), false)
   assert.equal(stayHasConflict('2026-11-02', '2026-11-03', occupied, 1, 'exclusive'), true)
+})
+
+test('stay labels distinguish requests and conflicts; cancellation stops on arrival day', () => {
+  assert.match(stayStatus({ status: 'pending', conflict: false }), /reçue/)
+  assert.match(stayStatus({ status: 'approved', conflict: true }), /Conflit/)
+  assert.equal(stayStatus({ status: 'confirmed', conflict: true }), 'Confirmée')
+  assert.equal(stayStatus({ status: 'rejected', conflict: false }), 'Refusée')
+  assert.equal(stayStatus({ status: 'cancelled', conflict: false }), 'Annulée')
+  assert.equal(confirmationEligibility({ check_in: '2026-11-20' }), '2026-10-30')
+  for (const status of ['pending', 'approved', 'confirmed']) {
+    assert.equal(cancellationAllowed({ status, check_in: '2026-11-20' }, '2026-11-19'), true)
+    assert.equal(cancellationAllowed({ status, check_in: '2026-11-20' }, '2026-11-20'), false)
+  }
+  assert.equal(cancellationAllowed({ status: 'cancelled', check_in: '2026-11-20' }, '2026-11-19'), false)
+  assert.match(formatMoney(12345), /123,45/)
+  assert.throws(() => formatMoney(-1), /Montant invalide/)
+  assert.throws(() => formatMoney(1.5), /Montant invalide/)
 })

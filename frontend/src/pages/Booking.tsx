@@ -5,7 +5,6 @@ import AvailabilityCalendar from '../components/AvailabilityCalendar'
 import {
   getBookingCapacity,
   getBookingErrorMessage,
-  getMyBookingRequests,
   getOccupiedDates,
   submitBookingRequest,
 } from '../lib/bookings'
@@ -13,6 +12,7 @@ import type { BookingRequest, OccupiedDates } from '../lib/bookings'
 import { branches, brusselsToday, dateBefore, familyYear, getPriorities, sixMonthsFrom, stayHasConflict } from '../lib/family'
 import type { Priority } from '../lib/family'
 import { getMyProfile } from '../lib/profiles'
+import { getMyStays, stayStatus } from '../lib/memberWorkflows'
 
 function localDateString(date: Date) {
   const year = date.getFullYear()
@@ -41,14 +41,7 @@ const fullHourOptions = Array.from(
   (_, hour) => `${String(hour).padStart(2, '0')}:00`,
 )
 
-function BookingStatus({ status }: { status: BookingRequest['status'] }) {
-  const labels: Record<BookingRequest['status'], string> = {
-    pending: 'En attente de confirmation',
-    approved: 'Approuvée — en attente de confirmation',
-    confirmed: 'Confirmée',
-    rejected: 'Refusée',
-    cancelled: 'Annulée',
-  }
+function BookingStatus({ request }: { request: BookingRequest }) {
   const colours: Record<BookingRequest['status'], string> = {
     pending: 'bg-amber-100 text-amber-900',
     approved: 'bg-blue-100 text-blue-900',
@@ -56,7 +49,7 @@ function BookingStatus({ status }: { status: BookingRequest['status'] }) {
     rejected: 'bg-red-100 text-red-900',
     cancelled: 'bg-slate-200 text-slate-800',
   }
-  return <span className={`inline-block rounded px-2 py-1 text-sm font-medium ${colours[status]}`}>{labels[status]}</span>
+  return <span className={`inline-block rounded px-2 py-1 text-sm font-medium ${colours[request.status]}`}>{stayStatus(request)}</span>
 }
 
 export default function Booking() {
@@ -89,7 +82,7 @@ export default function Booking() {
       const [nextCapacity, nextOccupied, nextRequests, nextPriorities, profile] = await Promise.all([
         getBookingCapacity(),
         getOccupiedDates(),
-        getMyBookingRequests(),
+        getMyStays(),
         getPriorities(),
         getMyProfile(),
       ])
@@ -334,13 +327,14 @@ export default function Booking() {
 
           <section aria-labelledby="requests-title" className="mt-10">
             <h2 id="requests-title" className="mb-3 text-xl font-semibold">Mes demandes</h2>
+            <Link to="/mes-sejours" className="mb-4 inline-block underline">Voir mes séjours, annuler ou consulter les paiements</Link>
             {requests.length === 0
               ? <p className="text-slate-600">Tu n’as pas encore envoyé de demande.</p>
               : <ul className="space-y-3">
                   {requests.map(request => <li key={request.id} className="rounded-lg bg-white p-4 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <h3 className="font-semibold">{formatDate(request.check_in)} — {formatDate(request.check_out)}</h3>
-                      <BookingStatus status={request.status} />
+                      <BookingStatus request={request} />
                     </div>
                     <p className="mt-2 text-sm text-slate-700">
                       {request.guest_count} voyageurs estimés · {request.stay_mode === 'open' ? 'ouvert au partage' : 'exclusif'} · arrivée prévue à {formatTime(request.planned_arrival_time)}

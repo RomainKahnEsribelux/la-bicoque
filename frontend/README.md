@@ -20,6 +20,10 @@ changement des variables. Ne jamais utiliser de clé secrète dans une variable 
 - `/a-propos`, `/contact` : présentation/informations pratiques ; aucun ancien
   contact n'est republié sans validation.
 - `/inscription`, `/connexion`, `/auth/callback` : inscription avec confirmation e-mail.
+- `/mot-de-passe-oublie`, `/nouveau-mot-de-passe` : récupération et définition
+  du mot de passe, avec vérification de session côté Supabase.
+- `/mes-sejours` : demandes personnelles, statuts, annulation et paiements.
+- `/sejour-pratique` : fiche privée chargée en base, sans contenu familial dans le bundle.
 - `/profil` : nom et branche ; changement de branche réservé aux admins.
 - `/reservation` : calendrier borné à six mois, demandes ouvertes/exclusives,
   effectifs estimés et suivi des approbations/confirmations.
@@ -60,6 +64,16 @@ d'exécution Worker ne les remplacent pas.
 **Ordre de mise en service :** migrations/permissions Supabase, configuration Auth,
 admins et jobs, validation, puis publication frontend. Un push n'applique pas les
 migrations et ne configure pas Resend.
+
+`VITE_AUTH_EMAILS_ENABLED` vaut `false` par défaut : les nouveaux envois de
+confirmation d'inscription et de récupération sont bloqués dans l'interface,
+avec un avertissement explicite. Les connexions existantes et les liens déjà
+reçus restent utilisables. Passer à `true` **seulement après** configuration et
+validation réelle du SMTP Supabase et des URL de redirection, puis reconstruire.
+Ce drapeau public ne protège pas les API Auth : la configuration Auth serveur
+reste obligatoire. Les invitations actuelles sont enregistrées sans envoi, même
+avec ce drapeau ; elles fournissent le lien public d'inscription et réservent
+les droits serveur, pas de lien d'authentification.
 
 Vérifier accueil, accès direct/actualisation des routes, inscription, e-mail confirmé,
 droits d'accès et réservations sur l'URL publique. Les nouveaux parcours ne sont

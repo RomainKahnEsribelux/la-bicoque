@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ContentCard, ContentPage } from '../components/ContentPage'
 import housePhoto from '../assets/bicoque-house.jpg'
+import { directionsUrl } from '../lib/memberWorkflows'
 
 export default function About() {
   return (
@@ -23,6 +24,7 @@ export default function About() {
           <p className="leading-relaxed text-slate-600">
             La maison est détenue en indivision. Elle se trouve au 54, rue de Spa, à Stavelot.
           </p>
+          <a href={directionsUrl} target="_blank" rel="noreferrer" className="mt-3 inline-block underline">Itinéraire Google Maps vers La Bicoque</a>
         </ContentCard>
       </div>
       <nav aria-label="Découvrir les archives" className="mt-7 flex flex-wrap gap-x-6 gap-y-3">

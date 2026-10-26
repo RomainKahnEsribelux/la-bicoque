@@ -19,6 +19,8 @@ export interface BookingRequest {
   conflict: boolean
   billing_ready: boolean
   rate_cents: number | null
+  paid_at: string | null
+  paid_by: string | null
   created_at: string
 }
 
@@ -67,6 +69,15 @@ export function getBookingErrorMessage(error: { message: string; code?: string }
     house_capacity_fixed_at_30: 'La capacité maximale est de 30 personnes.',
     invalid_rate: 'Indique un tarif positif par personne et par nuit.',
     booking_rate_already_validated: 'Le tarif de ce séjour a déjà été validé ou le séjour n’est pas confirmé.',
+    cancellation_requires_admin: 'À partir du jour d’arrivée, contacte un administrateur pour annuler.',
+    booking_not_cancellable: 'Ce séjour ne peut plus être annulé dans cet état.',
+    action_reason_required: 'Indique un motif de 1 à 500 caractères.',
+    payment_amount_not_ready: 'Le séjour doit être confirmé et son tarif validé avant de saisir un paiement.',
+    invalid_invitation_email: 'Indique une adresse e-mail valide.',
+    invitation_already_exists: 'Une invitation existe déjà pour cette adresse.',
+    administrator_slots_full: 'Les deux places administrateur sont déjà attribuées ou réservées.',
+    already_administrator: 'Ce compte est déjà administrateur.',
+    invitation_not_cancellable: 'Cette invitation a déjà été acceptée ou annulée.',
   }
 
   if (error.message.includes('account_email_required')) {
@@ -107,7 +118,7 @@ export async function getOccupiedDates() {
 export async function getMyBookingRequests() {
   const { data, error } = await getClient()
     .from('booking_requests')
-    .select('id, guest_first_name, guest_last_name, guest_email, check_in, check_out, guest_count, planned_arrival_time, planned_departure_time, guest_note, status, created_at, branch, stay_mode, approved_at, confirmed_at, conflict, billing_ready, rate_cents')
+    .select('id, guest_first_name, guest_last_name, guest_email, check_in, check_out, guest_count, planned_arrival_time, planned_departure_time, guest_note, status, created_at, branch, stay_mode, approved_at, confirmed_at, conflict, billing_ready, rate_cents, paid_at, paid_by')
     .order('created_at', { ascending: false })
   if (error) throw new Error(getBookingErrorMessage(error))
   if (!Array.isArray(data)) throw new Error('Impossible de lire les demandes de réservation. Réessaie.')

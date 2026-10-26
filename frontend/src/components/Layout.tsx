@@ -50,6 +50,8 @@ export default function Layout() {
                   <Link to="/histoires" className="site-nav-link">Histoires</Link>
                   <Link to="/documents" className="site-nav-link">Documents</Link>
                   <Link to="/profil" className="site-nav-link">Mon profil</Link>
+                  <Link to="/mes-sejours" className="site-nav-link">Mes séjours</Link>
+                  <Link to="/sejour-pratique" className="site-nav-link">Fiche pratique</Link>
                   {ownerId === session.user.id && <Link to="/gestion" className="site-nav-link">Gestion</Link>}
                   <button type="button" onClick={signOut} disabled={signingOut} className="site-nav-link disabled:opacity-60">
                     {signingOut ? 'D\u00e9connexion...' : 'Se d\u00e9connecter'}

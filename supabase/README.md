@@ -39,6 +39,25 @@ l'historique distant avec les versions des fichiers locaux ci-dessus.
 
 ## Administrateurs et inscriptions
 
+La migration `20261026190000_member_workflows.sql` ajoute les invitations
+contrôlées, annulations, paiements totaux, journal et fiche pratique privée.
+Elle est suivie de `20261026191000_invitation_capacity.sql`, qui verrouille
+également la limite de deux admins pour les adresses déjà autorisées.
+Sur le projet hébergé, ces migrations ont été appliquées via MCP sous les versions
+`20261026173023` (`member_workflows`) et `20261026173758` (`invitation_capacity`).
+Ne pas les rejouer sans réconcilier l'historique distant et les noms locaux.
+Installer cette évolution avant de publier le frontend correspondant.
+La migration ne contient aucun document privé et n'envoie aucun e-mail.
+Charger la synthèse expurgée dans `practical_guides` via un accès SQL de confiance.
+Ne pas ajouter les fichiers originaux ni les coordonnées historiques au dépôt.
+
+Les invitations sont gérées dans Gestion, sans appel Auth admin depuis React.
+Une invitation admin réserve un des deux emplacements et la confirmation de
+l'adresse provisionne les droits. Un compte déjà confirmé reçoit ses droits
+immédiatement. Annuler une invitation non acceptée libère sa réservation ;
+aucune révocation d'admin actif n'est fournie par cette interface.
+L'inscription publique reste libre, sans contrôle d'appartenance familiale.
+
 Les inscriptions ne doivent être ouvertes **qu'après** l'installation de la
 migration familiale : elle retire l'ancienne fonction d'auto-activation.
 Dans Auth, activer l'inscription e-mail et **Confirm email**.
@@ -64,10 +83,17 @@ Dans Auth → URL Configuration :
 - Site URL : `https://la-bicoque.romain-kahn.workers.dev` ;
 - autoriser explicitement `https://la-bicoque.romain-kahn.workers.dev/auth/callback`
   et les URL locales nécessaires au développement.
+- autoriser aussi `https://la-bicoque.romain-kahn.workers.dev/nouveau-mot-de-passe`
+  et son équivalent local pour la récupération.
 
 Configurer un SMTP de production pour Auth (éventuellement Resend SMTP). Le service
 d'envoi Auth par défaut a des restrictions ; ne pas présumer qu'il enverra les
 confirmations à tous les nouveaux comptes. Valider un vrai e-mail de confirmation.
+Ensuite seulement, définir `VITE_AUTH_EMAILS_ENABLED=true` dans les variables
+de build Cloudflare et reconstruire. Par défaut, l'interface annonce clairement
+que les envois Auth ne sont pas activés. Les invitations enregistrées ne sont pas
+des messages envoyés ; leur livraison automatisée reste une activation distincte.
+Tester confirmation, récupération, lien expiré et nouvel accès avant ouverture.
 
 ## E-mails métier et tâches planifiées
 

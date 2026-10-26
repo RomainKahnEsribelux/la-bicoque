@@ -65,7 +65,7 @@ export default function Login() {
       </form>
       <p className="mt-6 text-sm text-slate-600">
         Pas encore de compte ? <Link to="/inscription" className="text-indigo-700 underline">Inscrivez-vous</Link>.
-        {' '}Mot de passe oubli&eacute; ? Contactez un administrateur.
+        {' '}<Link to="/mot-de-passe-oublie" className="text-indigo-700 underline">Mot de passe oubli&eacute; ?</Link>
         {' '}<Link to="/" className="text-indigo-700 underline">Retour &agrave; l&apos;accueil</Link>
       </p>
     </section>

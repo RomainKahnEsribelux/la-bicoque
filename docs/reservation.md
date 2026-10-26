@@ -13,10 +13,51 @@ Ce choix ne garantit donc pas que tous les lecteurs appartiennent à la famille.
 Les archives sont protégées dans Supabase et son Storage privé, pas seulement
 par la navigation React. Ne jamais placer ces contenus dans le dépôt GitHub public.
 
-Deux admins sont prévus. L'adresse du premier a été convenue en privé ; le second reste
-à fournir. Les adresses sont configurées côté serveur, pas publiées dans Git.
+Deux admins maximum, invitations admin en attente comprises. Dans Gestion, un
+admin peut enregistrer une invitation membre ou réserver la deuxième place admin.
+L'adresse est liée côté serveur au compte après vérification de l'e-mail, jamais
+à un rôle choisi à l'inscription. Une invitation non acceptée peut être annulée ;
+un admin actif ne peut pas être révoqué depuis le site dans cette version.
+Les invitations n'envoient aucun e-mail tant que le parcours SMTP n'est pas activé.
 L'ancienne auto-activation du propriétaire est désactivée dans la nouvelle
 migration, avant l'ouverture des inscriptions. Voir [la mise en service](../supabase/README.md).
+
+## Mes séjours, annulations et paiements
+
+La page Mes séjours affiche uniquement les demandes du compte connecté, y compris
+pour un admin (sa vue complète reste dans Gestion). « Demande reçue » n'est pas
+une réservation. Une approbation différée indique la date d'éligibilité J−21 ;
+un conflit laisse le séjour non confirmé.
+
+Le demandeur peut annuler une demande reçue, approuvée ou confirmée **avant le
+jour d'arrivée en Europe/Brussels**. À partir de l'arrivée, un admin intervient
+avec un motif. L'annulation libère les occupations et réévalue les approbations
+éligibles sous le même verrou que le cron. Elle neutralise les notifications
+non envoyées devenues obsolètes ; un e-mail déjà envoyé ne peut pas être rappelé.
+
+Le suivi porte sur le **paiement total**, sans transaction en ligne. Le montant
+est affiché seulement si le séjour est confirmé et le tarif validé : personnes
+estimées × nuits × tarif enregistré en centimes. Les coordonnées de virement
+ne sont consultables que pour ses propres séjours concernés ou par les admins.
+Un admin marque le paiement reçu et peut corriger cette saisie avec un motif.
+Les rappels non envoyés sont neutralisés pour un séjour payé. Une correction
+peut remettre un rappel en attente, mais ne renvoie pas un rappel déjà livré.
+Une annulation ne crée pas de remboursement automatique : la gestion traite
+séparément tout montant déjà reçu.
+
+## Fiche pratique et historique
+
+La fiche pratique est accessible aux comptes à e-mail confirmé, sans validation
+familiale supplémentaire. Son contenu est protégé en base par RLS, pas inclus
+dans le bundle public. La synthèse des documents d'octobre 2020 exclut accès,
+anciens contacts/tarifs et manipulations techniques non validées. Les cases de la
+checklist ne sont pas enregistrées. Les horaires et détails actuels restent à
+confirmer avec la gestion.
+
+Le journal serveur commence à son installation. Il conserve acteur, date,
+référence et changements métier des actions admin, membre et automatiques ;
+il n'invente pas le passé et ne copie ni secrets ni coordonnées bancaires.
+Seuls les admins le consultent, sans possibilité de modifier ses lignes.
 
 ## Priorité et approbation
 

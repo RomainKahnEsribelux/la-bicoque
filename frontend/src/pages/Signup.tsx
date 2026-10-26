@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext'
 import { supabase } from '../lib/supabase'
 import { BRANCHES, NAME_MAX_LENGTH, isBranch } from '../lib/profiles'
 import type { Branch } from '../lib/profiles'
+import { authEmailsEnabled, authEmailUnavailable } from '../lib/authEmails'
 
 const PASSWORD_MIN_LENGTH = 8
 const inputClass = 'w-full rounded-xl border border-slate-400 bg-white p-3'
@@ -38,6 +39,7 @@ export default function Signup() {
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!supabase || submitting) return
+    if (!authEmailsEnabled) return setError(authEmailUnavailable)
     const first = firstName.trim()
     const last = lastName.trim()
     if (!first || !last) return setError('Indiquez votre pr\u00e9nom et votre nom.')
@@ -101,8 +103,9 @@ export default function Signup() {
       <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">La bicoque</p>
       <h1 className="mb-4 text-3xl font-semibold">Cr&eacute;er un compte</h1>
       <p className="mb-6 leading-relaxed text-slate-600">
-        Inscrivez-vous pour demander une r&eacute;servation. Un e-mail de confirmation vous sera envoy&eacute;.
+        Inscrivez-vous pour demander une r&eacute;servation. La confirmation de l’adresse e-mail est obligatoire.
       </p>
+      {!authEmailsEnabled && <p role="status" className="mb-5 rounded bg-amber-50 p-4">{authEmailUnavailable}</p>}
       {authError && <p role="alert" className="mb-6 text-red-700">{authError}</p>}
       {session && (
         <p role="status" className="mb-6 rounded-xl bg-indigo-50 p-3 text-sm text-indigo-900">
@@ -144,7 +147,7 @@ export default function Signup() {
           <p id="signup-password-help" className="mt-1 text-sm text-slate-500">Au moins {PASSWORD_MIN_LENGTH} caract&egrave;res.</p>
         </div>
         {error && <p role="alert" className="text-red-700">{error}</p>}
-        <button type="submit" disabled={submitting || !supabase} className="w-full rounded-xl bg-indigo-700 p-3 font-medium text-white shadow-sm hover:bg-indigo-800 disabled:opacity-60">
+        <button type="submit" disabled={submitting || !supabase || !authEmailsEnabled} className="w-full rounded-xl bg-indigo-700 p-3 font-medium text-white shadow-sm hover:bg-indigo-800 disabled:opacity-60">
           {submitting ? 'Inscription en cours...' : 'Cr\u00e9er mon compte'}
         </button>
       </form>

@@ -26,7 +26,7 @@ async function database() {
     grant usage on schema storage to authenticated;
     grant all on storage.objects to authenticated;
   `)
-  for (const file of ['20261016090000_booking_requests.sql', '20261021100000_family_bookings.sql', '20261021120000_family_content.sql']) {
+  for (const file of ['20261016090000_booking_requests.sql', '20261021100000_family_bookings.sql', '20261021120000_family_content.sql', '20261026190000_member_workflows.sql', '20261026191000_invitation_capacity.sql']) {
     await db.exec(await readFile(new URL(`../../supabase/migrations/${file}`, import.meta.url), 'utf8'))
   }
   await db.exec(`
@@ -217,6 +217,8 @@ test('second administrator needs trusted allowlist and verified email; never aut
     await db.exec(`insert into public.admin_allowlist values('third@example.test');
       insert into auth.users values('00000000-0000-0000-0000-000000000005','third@example.test',now());`)
     assert.equal((await db.query('select count(*)::integer as n from public.site_owners')).rows[0].n, 2)
+    await asUser(db, admin)
+    await assert.rejects(db.exec(`select public.owner_invite_member('third@example.test','admin')`), /administrator_slots_full/)
   } finally { await db.close() }
 })
 
@@ -237,5 +239,149 @@ test('missing priority, missing profiles and past approved stays fail explicitly
     await db.exec('select public.process_family_bookings()')
     assert.equal((await booking(db, id)).status, 'approved')
     assert.equal((await db.query(`select count(*)::integer as n from public.email_outbox where kind='confirmation'`)).rows[0].n, 0)
+  } finally { await db.close() }
+})
+
+test('invitations require an admin, reserve the second slot and wait for verified email', async () => {
+  const db = await database()
+  try {
+    await asUser(db, member)
+    await assert.rejects(db.exec(`select public.owner_invite_member('second@example.test','admin')`), /owner_required/)
+    await asUser(db, admin)
+    await assert.rejects(db.exec(`select public.owner_invite_member('invalid','admin')`), /invalid_invitation_email/)
+    const invitation = (await db.query(`select public.owner_invite_member(' SECOND@example.test ','admin') as id`)).rows[0].id
+    await assert.rejects(db.exec(`select public.owner_invite_member('third@example.test','admin')`), /administrator_slots_full/)
+    await assert.rejects(db.exec(`select public.owner_invite_member('second@example.test','admin')`), /invitation_already_exists/)
+    await db.exec(`insert into auth.users values('00000000-0000-0000-0000-000000000004','second@example.test',null)`)
+    assert.equal((await db.query('select count(*)::int as n from public.site_owners')).rows[0].n, 1)
+    await db.exec(`update auth.users set email_confirmed_at=now() where email='second@example.test'`)
+    assert.equal((await db.query('select count(*)::int as n from public.site_owners')).rows[0].n, 2)
+    await assert.rejects(db.query('select public.owner_cancel_invitation($1)', [invitation]), /invitation_not_cancellable/)
+  } finally { await db.close() }
+})
+
+test('cancelled invitations release slots; existing verified members can become second admin', async () => {
+  const db = await database()
+  try {
+    await asUser(db, admin)
+    const invitation = (await db.query(`select public.owner_invite_member('second@example.test','admin') as id`)).rows[0].id
+    await db.query('select public.owner_cancel_invitation($1)', [invitation])
+    assert.equal((await db.query(`select count(*)::int as n from public.admin_allowlist where email='second@example.test'`)).rows[0].n, 0)
+    await db.exec(`select public.owner_invite_member('member@example.test','member')`)
+    await db.exec(`select public.owner_invite_member('member@example.test','admin')`)
+    await asUser(db, member)
+    assert.equal((await db.query('select public.is_site_owner() as owner')).rows[0].owner, true)
+    await db.exec('set role authenticated')
+    await assert.rejects(db.exec(`insert into public.admin_allowlist values('intruder@example.test')`), /permission denied/)
+    await assert.rejects(db.exec(`update public.member_invitations set role='admin'`), /permission denied/)
+  } finally { await db.close() }
+})
+
+test('member cancellation frees capacity, cancels obsolete mail and rechecks eligible approvals', async () => {
+  const db = await database()
+  try {
+    await asUser(db, other)
+    const first = await submit(db, { count: 30 })
+    const waiting = await submit(db, { count: 10 })
+    await approve(db, first)
+    await approve(db, waiting)
+    assert.equal((await booking(db, waiting)).conflict, true)
+    await asUser(db, member)
+    await assert.rejects(db.query('select public.cancel_family_booking($1)', [first]), /booking_request_not_found/)
+    await asUser(db, other)
+    await db.query('select public.cancel_family_booking($1)', [first])
+    await db.query('select public.cancel_family_booking($1)', [first])
+    assert.equal((await booking(db, first)).status, 'cancelled')
+    assert.equal((await booking(db, waiting)).status, 'confirmed')
+    assert.equal((await db.query('select count(*)::int as n from public.occupied_periods where booking_id=$1', [first])).rows[0].n, 0)
+    assert.equal((await db.query('select state from public.email_outbox where booking_id=$1', [first])).rows[0].state, 'cancelled')
+    assert.equal((await db.query(`select count(*)::int as n from public.admin_history where entity_id=$1 and details->'status'->>'after'='cancelled'`, [first])).rows[0].n, 1)
+  } finally { await db.close() }
+})
+
+test('cancellation boundary is Brussels arrival day; admin needs a reason', async () => {
+  const db = await database()
+  try {
+    await asUser(db, member)
+    const id = await submit(db, { start: '2026-10-21', end: '2026-10-23' })
+    await assert.rejects(db.query('select public.cancel_family_booking($1)', [id]), /cancellation_requires_admin/)
+    await asUser(db, admin)
+    await assert.rejects(db.query('select public.cancel_family_booking($1)', [id]), /action_reason_required/)
+    await db.query('select public.cancel_family_booking($1,$2)', [id, 'Intervention demandee par le membre'])
+    assert.equal((await booking(db, id)).status, 'cancelled')
+    const own = await submit(db)
+    await db.query('select public.cancel_family_booking($1)', [own])
+    assert.equal((await booking(db, own)).status, 'cancelled')
+  } finally { await db.close() }
+})
+
+test('own stays never include other members even for admins; bank settings remain private', async () => {
+  const db = await database()
+  try {
+    await asUser(db, other)
+    const id = await submit(db)
+    await approve(db, id)
+    assert.equal((await db.query('select * from public.get_my_stays()')).rows.length, 0)
+    await asUser(db, other)
+    const row = (await db.query('select public.get_my_stays() as stay')).rows[0].stay
+    assert.equal(row.id, id)
+    assert.equal(row.amount_cents, 30000)
+    assert.equal(row.transfer_instructions, 'Test bank instructions')
+    await asUser(db, member)
+    await db.exec('set role authenticated')
+    assert.equal((await db.query('select * from public.get_my_stays()')).rows.length, 0)
+    await assert.rejects(db.exec('select transfer_instructions from public.house_settings'), /permission denied/)
+    await assert.rejects(db.query('select public.owner_set_booking_paid($1,true)', [id]), /owner_required/)
+  } finally { await db.close() }
+})
+
+test('total payments and motivated corrections are audited and suppress pending reminders', async () => {
+  const db = await database()
+  try {
+    await asUser(db, other)
+    const id = await submit(db)
+    await approve(db, id)
+    await db.exec(`create or replace function public.family_today() returns date language sql stable as $$ select date '2026-11-24' $$`)
+    await db.exec('select public.process_family_bookings()')
+    await db.query('select public.owner_set_booking_paid($1,true)', [id])
+    await db.exec('select public.process_family_bookings()')
+    assert.ok((await booking(db, id)).paid_at)
+    assert.equal((await db.query(`select state from public.email_outbox where booking_id=$1 and kind='payment'`, [id])).rows[0].state, 'cancelled')
+    await assert.rejects(db.query('select public.owner_set_booking_paid($1,false)', [id]), /action_reason_required/)
+    await db.query('select public.owner_set_booking_paid($1,false,$2)', [id, 'Erreur de rapprochement'])
+    assert.equal((await booking(db, id)).paid_at, null)
+    await db.exec('select public.process_family_bookings()')
+    assert.equal((await db.query(`select state from public.email_outbox where booking_id=$1 and kind='payment'`, [id])).rows[0].state, 'pending')
+    const audit = (await db.query(`select reason from public.admin_history where entity_id=$1 and details ? 'paid_at' order by id desc`, [id])).rows
+    assert.equal(audit[0].reason, 'Erreur de rapprochement')
+    assert.equal(audit[1].reason, 'Paiement total recu')
+  } finally { await db.close() }
+})
+
+test('private guide and immutable audit require correct roles and do not log bank contents', async () => {
+  const db = await database()
+  try {
+    await asUser(db, admin)
+    await db.exec(`insert into public.practical_guides values('test','Guide','Contenu prive',now());
+      select public.owner_save_family_settings(2026,'helene',1200,'Private IBAN must not enter history');`)
+    const audit = JSON.stringify((await db.query('select details from public.admin_history')).rows)
+    assert.equal(audit.includes('Private IBAN'), false)
+    assert.equal(audit.includes('transfer_instructions_changed'), true)
+    await asUser(db, member)
+    await db.exec('set role authenticated')
+    assert.equal((await db.query('select * from public.practical_guides')).rows.length, 1)
+    assert.equal((await db.query('select * from public.admin_history')).rows.length, 0)
+    await assert.rejects(db.exec(`update public.admin_history set reason='tampered'`), /permission denied/)
+    await assert.rejects(db.exec(`update public.practical_guides set body='tampered'`), /permission denied/)
+    await db.exec('reset role')
+    await asUser(db, admin)
+    await db.exec('set role authenticated')
+    assert.ok((await db.query('select * from public.admin_history')).rows.length)
+    await assert.rejects(db.exec('delete from public.admin_history'), /permission denied/)
+    await db.exec('reset role')
+    await db.exec(`update auth.users set email_confirmed_at=null where id='${member}'`)
+    await asUser(db, member)
+    await db.exec('set role authenticated')
+    assert.equal((await db.query('select * from public.practical_guides')).rows.length, 0)
   } finally { await db.close() }
 })

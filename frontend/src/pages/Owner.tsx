@@ -5,6 +5,8 @@ import type { BookingRequest, OwnerOccupiedPeriod } from '../lib/bookings'
 import { branches, brusselsToday, dateBefore, familyYear, getFamilySettings, getPriorities, saveFamilySettings, validateBookingRate } from '../lib/family'
 import { supabase } from '../lib/supabase'
 import { getBookingErrorMessage } from '../lib/bookings'
+import MemberManagement from '../components/MemberManagement'
+import { formatMoney, workflowAction } from '../lib/memberWorkflows'
 
 interface Member { user_id: string; first_name: string; last_name: string; branch: string }
 interface Delivery { id: string; kind: string; state: string; attempts: number; last_error: string | null; created_at: string }
@@ -36,6 +38,7 @@ export default function Owner() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [revision, setRevision] = useState(0)
 
   const reload = useCallback(async () => {
     const allowed = await isSiteOwner()
@@ -56,6 +59,7 @@ export default function Owner() {
     setRate(settings.rate_cents ? (settings.rate_cents / 100).toFixed(2) : '')
     setTransfer(settings.transfer_instructions ?? '')
     setBranch(priorities.find(p => p.start_year === year)?.branch ?? '')
+    setRevision(value => value + 1)
   }, [year])
 
   useEffect(() => {
@@ -145,6 +149,22 @@ export default function Owner() {
             onClick={() => void action(() => validateBookingRate(r.id, centsFrom(rate)), 'Tarif du séjour validé.')}>
             Valider le tarif de ce séjour : {rate || 'à définir'} EUR/personne/nuit
           </button>}
+          {r.status === 'confirmed' && r.billing_ready && r.rate_cents !== null && <div className="space-y-2">
+            <p>Paiement : {formatMoney(r.guest_count * Math.round((Date.parse(r.check_out) - Date.parse(r.check_in)) / 86400000) * r.rate_cents)} · {r.paid_at ? 'Reçu' : 'Non enregistré'}</p>
+            <button disabled={busy} className={buttonClass} onClick={() => {
+              const reason = r.paid_at ? window.prompt('Motif de correction du paiement reçu (obligatoire) :') : null
+              if (r.paid_at && !reason?.trim()) return
+              if (!r.paid_at && !window.confirm('Confirmer la réception du paiement TOTAL de ce séjour ?')) return
+              void action(() => workflowAction('owner_set_booking_paid', {
+                p_id: r.id, p_paid: !r.paid_at, p_reason: reason,
+              }), r.paid_at ? 'Correction enregistrée dans l’historique.' : 'Paiement reçu enregistré.')
+            }}>{r.paid_at ? 'Corriger le paiement reçu' : 'Marquer le paiement reçu'}</button>
+          </div>}
+          {['pending', 'approved', 'confirmed'].includes(r.status) && <button disabled={busy} className="text-red-800 underline" onClick={() => {
+            const reason = window.prompt('Motif de l’annulation administrateur (obligatoire) :')
+            if (!reason?.trim() || !window.confirm('Annuler ce séjour et libérer ses dates ?')) return
+            void action(() => workflowAction('cancel_family_booking', { p_id: r.id, p_reason: reason }), 'Séjour annulé ; dates libérées et demandes réévaluées.')
+          }}>Annuler le séjour (admin)</button>}
         </li>)}</ul>
       </section>
 
@@ -176,7 +196,7 @@ export default function Owner() {
         {deliveries.length === 0 && <p>Aucun envoi enregistré.</p>}
         <ul className="space-y-2">{deliveries.map(d => <li key={d.id}>
           {d.kind} · {d.state} · {d.attempts} tentative(s) · {d.last_error ?? 'Aucune erreur enregistrée'}
-          {d.state !== 'sent' && <button disabled={busy} className="ml-3 underline" onClick={() => {
+          {['failed', 'pending', 'sending'].includes(d.state) && <button disabled={busy} className="ml-3 underline" onClick={() => {
             if (!window.confirm('Vérifie dans Resend que cet e-mail n’a PAS été accepté ou envoyé. Une réponse réseau incertaine peut cacher un envoi réussi. Confirmes-tu cette vérification avant de réautoriser l’envoi ?')) return
             void action(async () => {
               if (!supabase) throw new Error('Supabase indisponible.')
@@ -186,6 +206,7 @@ export default function Owner() {
           }}>Réautoriser après vérification</button>}
         </li>)}</ul>
       </section>
+      <MemberManagement revision={revision} />
     </>}
   </section>
 }
