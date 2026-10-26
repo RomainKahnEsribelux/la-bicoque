@@ -16,20 +16,20 @@ export default function Home() {
           <div className="max-w-2xl text-white">
             <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/35 bg-black/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#f5dfb1] backdrop-blur-sm sm:text-sm">
               <span aria-hidden="true" className="size-2 rounded-full bg-[#e6b56e]" />
-              Une maison à partager
+              La Société des Bicoquins
             </p>
             <h1 className="mb-5 font-serif text-5xl font-medium leading-[0.98] tracking-tight drop-shadow sm:text-7xl lg:text-8xl">
               La bicoque
             </h1>
             <p className="max-w-xl text-base leading-relaxed text-white/90 sm:text-xl">
-              Un refuge au vert, des saisons à vivre ensemble et des souvenirs à faire.
-              Choisissez vos dates et demandez votre prochain séjour.
+              Un lieu familial à Stavelot, détenu en indivision, et des archives à transmettre.
+              Découvrez la maison, les récits et les documents partagés.
             </p>
             <Link
-              to="/reservation"
+              to="/a-propos"
               className="mt-8 inline-flex items-center gap-3 rounded-full bg-[#f6f0df] px-6 py-3.5 font-semibold text-[#34462f] shadow-lg transition hover:-translate-y-0.5 hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
             >
-              Voir les disponibilités
+              Découvrir la maison
               <span aria-hidden="true">→</span>
             </Link>
           </div>
@@ -42,18 +42,19 @@ export default function Home() {
       <div className="mt-7 grid gap-4 sm:grid-cols-3 sm:gap-5">
         <article className="home-feature rounded-2xl p-5 sm:p-6">
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-indigo-700">Le lieu</p>
-          <h2 className="font-serif text-xl font-semibold text-slate-800">Une maison à retrouver</h2>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">Un endroit pour se poser, respirer et profiter du paysage.</p>
+          <h2 className="font-serif text-xl font-semibold text-slate-800">Au 54, rue de Spa</h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">La maison familiale est située à Stavelot et détenue en indivision.</p>
         </article>
         <article className="home-feature rounded-2xl p-5 sm:p-6">
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-indigo-700">Ensemble</p>
-          <h2 className="font-serif text-xl font-semibold text-slate-800">Des séjours partagés</h2>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">Les disponibilités sont visibles aux membres connectés.</p>
+          <h2 className="font-serif text-xl font-semibold text-slate-800">La Société des Bicoquins</h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">Un espace pour retrouver les informations et l’histoire familiale autour de la maison.</p>
         </article>
         <article className="home-feature rounded-2xl p-5 sm:p-6">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-indigo-700">Votre séjour</p>
-          <h2 className="font-serif text-xl font-semibold text-slate-800">Une demande, puis confirmation</h2>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">Chaque demande est vérifiée et confirmée par le propriétaire.</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-indigo-700">Archives</p>
+          <h2 className="font-serif text-xl font-semibold text-slate-800">Récits et documents</h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">Les pages d’archives s’enrichiront au fil des imports de contenu familial.</p>
+          <Link to="/histoires" className="mt-3 inline-flex font-medium text-indigo-800 underline underline-offset-4">Parcourir les histoires</Link>
         </article>
       </div>
     </section>

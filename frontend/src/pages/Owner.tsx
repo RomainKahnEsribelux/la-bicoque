@@ -1,241 +1,213 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SubmitEvent } from 'react'
-import {
-  addOwnerBlock,
-  claimSiteOwner,
-  confirmBooking,
-  getBookingCapacity,
-  getBookingErrorMessage,
-  getMyBookingRequests,
-  getOwnerOccupiedPeriods,
-  isSiteOwner,
-  rejectBooking,
-  removeOwnerBlock,
-  setHouseCapacity,
-} from '../lib/bookings'
+import { addOwnerBlock, confirmBooking, getMyBookingRequests, getOwnerOccupiedPeriods, isSiteOwner, rejectBooking, removeOwnerBlock } from '../lib/bookings'
 import type { BookingRequest, OwnerOccupiedPeriod } from '../lib/bookings'
+import { branches, brusselsToday, dateBefore, familyYear, getFamilySettings, getPriorities, saveFamilySettings, validateBookingRate } from '../lib/family'
+import { supabase } from '../lib/supabase'
+import { getBookingErrorMessage } from '../lib/bookings'
 
-function dateValue(value: string) {
-  return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeZone: 'UTC' })
-    .format(new Date(`${value}T12:00:00Z`))
-}
+interface Member { user_id: string; first_name: string; last_name: string; branch: string }
+interface Delivery { id: string; kind: string; state: string; attempts: number; last_error: string | null; created_at: string }
+const statusLabels = { pending: 'À approuver', approved: 'Approuvée — différée', confirmed: 'Confirmée', rejected: 'Refusée', cancelled: 'Annulée' }
+const inputClass = 'mt-1 block w-full rounded-xl border border-slate-400 bg-white p-3'
+const buttonClass = 'rounded-xl bg-indigo-700 px-4 py-2 font-medium text-white disabled:opacity-50'
 
-function todayValue() {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
-
-function BookingStatus({ status }: { status: BookingRequest['status'] }) {
-  const statusLabels: Record<BookingRequest['status'], string> = {
-    pending: 'En attente',
-    confirmed: 'Confirmée',
-    rejected: 'Refusée',
-    cancelled: 'Annulée',
-  }
-  return <span className="rounded bg-slate-100 px-2 py-1 text-sm">{statusLabels[status]}</span>
+function centsFrom(value: string) {
+  if (!/^\d+([.,]\d{1,2})?$/.test(value)) throw new Error('Indique un tarif positif avec deux décimales maximum.')
+  const result = Math.round(Number(value.replace(',', '.')) * 100)
+  if (!Number.isSafeInteger(result) || result <= 0 || result > 2147483647) throw new Error('Tarif invalide.')
+  return result
 }
 
 export default function Owner() {
   const [owner, setOwner] = useState<boolean | null>(null)
-  const [capacity, setCapacity] = useState<number | null>(null)
-  const [capacityInput, setCapacityInput] = useState('')
   const [requests, setRequests] = useState<BookingRequest[]>([])
   const [periods, setPeriods] = useState<OwnerOccupiedPeriod[]>([])
+  const [members, setMembers] = useState<Member[]>([])
+  const [deliveries, setDeliveries] = useState<Delivery[]>([])
+  const [year, setYear] = useState(familyYear(brusselsToday()))
+  const [branch, setBranch] = useState('helene')
+  const [rate, setRate] = useState('')
+  const [transfer, setTransfer] = useState('')
+  const [filter, setFilter] = useState('active')
   const [blockStart, setBlockStart] = useState('')
   const [blockEnd, setBlockEnd] = useState('')
   const [blockNote, setBlockNote] = useState('')
-  const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [today] = useState(() => todayValue())
 
   const reload = useCallback(async () => {
-    try {
-      const isOwner = await isSiteOwner()
-      setOwner(isOwner)
-      if (!isOwner) return
-      const [nextCapacity, nextRequests, nextPeriods] = await Promise.all([
-        getBookingCapacity(),
-        getMyBookingRequests(),
-        getOwnerOccupiedPeriods(),
-      ])
-      setCapacity(nextCapacity)
-      setCapacityInput(nextCapacity?.toString() ?? '')
-      setRequests(nextRequests)
-      setPeriods(nextPeriods)
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Impossible de charger les informations du propriétaire.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+    const allowed = await isSiteOwner()
+    setOwner(allowed)
+    if (!allowed) return
+    if (!supabase) throw new Error('Supabase indisponible.')
+    const [nextRequests, nextPeriods, settings, priorities, profiles, emails] = await Promise.all([
+      getMyBookingRequests(), getOwnerOccupiedPeriods(), getFamilySettings(), getPriorities(),
+      supabase.from('member_profiles').select('user_id,first_name,last_name,branch').order('last_name').returns<Member[]>(),
+      supabase.from('email_outbox').select('id,kind,state,attempts,last_error,created_at').order('created_at', { ascending: false }).limit(50).returns<Delivery[]>(),
+    ])
+    if (profiles.error) throw new Error(getBookingErrorMessage(profiles.error))
+    if (emails.error) throw new Error(getBookingErrorMessage(emails.error))
+    setRequests(nextRequests)
+    setPeriods(nextPeriods)
+    setMembers(profiles.data)
+    setDeliveries(emails.data)
+    setRate(settings.rate_cents ? (settings.rate_cents / 100).toFixed(2) : '')
+    setTransfer(settings.transfer_instructions ?? '')
+    setBranch(priorities.find(p => p.start_year === year)?.branch ?? '')
+  }, [year])
 
   useEffect(() => {
     let active = true
-    void Promise.resolve().then(() => {
-      if (active) return reload()
-    })
-    return () => {
-      active = false
-    }
+    void Promise.resolve().then(reload).catch(e => { if (active) setError(e instanceof Error ? e.message : 'Chargement impossible.') })
+    return () => { active = false }
   }, [reload])
 
-  async function runAction(action: () => Promise<void>, success: string) {
-    if (busy) return false
+  async function action(fn: () => Promise<unknown>, message: string) {
+    if (busy) return
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
-      await action()
-      setNotice(success)
+      await fn()
       await reload()
-      return true
-    } catch (actionError) {
-      setError(actionError instanceof Error
-        ? actionError.message
-        : getBookingErrorMessage({ message: 'unknown' }))
-      return false
-    } finally {
-      setBusy(false)
-    }
+      setNotice(message)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Action impossible. Réessaie.')
+    } finally { setBusy(false) }
   }
 
-  async function saveCapacity(event: SubmitEvent<HTMLFormElement>) {
+  async function save(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    const value = Number(capacityInput)
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      setError('Indique une capacité entière supérieure à zéro.')
-      return
-    }
-    await runAction(() => setHouseCapacity(value), 'La capacité de la maison est enregistrée.')
+    await action(async () => {
+      if (!Number.isInteger(year) || !branches[branch]) throw new Error('Choisis une année et une branche.')
+      await saveFamilySettings(year, branch, rate ? centsFrom(rate) : null, transfer)
+    }, 'Paramètres enregistrés et demandes approuvées réévaluées.')
   }
 
-  async function createBlock(event: SubmitEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const succeeded = await runAction(
-      () => addOwnerBlock({ startDate: blockStart, endDate: blockEnd, note: blockNote }),
-      'La période est bloquée et ne peut plus être demandée.',
-    )
-    if (succeeded) {
-      setBlockStart('')
-      setBlockEnd('')
-      setBlockNote('')
-    }
-  }
+  const sortedRequests = [...requests].sort((a, b) =>
+    Number(!['pending', 'approved'].includes(a.status)) - Number(!['pending', 'approved'].includes(b.status))
+    || a.check_in.localeCompare(b.check_in))
+  const visible = sortedRequests.filter(r => filter === 'all'
+    || (filter === 'active' ? ['pending', 'approved'].includes(r.status) : filter === 'conflict' ? r.conflict : r.status === filter))
 
-  async function claim() {
-    await runAction(async () => {
-      await claimSiteOwner()
-      setOwner(true)
-    }, 'Les droits propriétaire sont activés pour ce compte.')
-  }
+  return <section className="mx-auto max-w-5xl space-y-7">
+    <h1 className="text-4xl font-semibold">Gestion des Bicoquins</h1>
+    {error && <p role="alert" className="rounded bg-red-50 p-4 text-red-800">{error}</p>}
+    {notice && <p role="status" className="rounded bg-green-50 p-4 text-green-900">{notice}</p>}
+    <button className={buttonClass} disabled={busy} onClick={() => void action(reload, 'Données actualisées.')}>Actualiser</button>
+    {owner === null && !error && <p role="status">Vérification des droits...</p>}
+    {owner === false && <p>Cette page est réservée aux administrateurs. Leur attribution se fait par une procédure sécurisée, pas par auto-activation.</p>}
+    {owner && <>
+      <form onSubmit={save} className="space-y-4 rounded-2xl bg-white/85 p-6">
+        <h2 className="text-xl font-semibold">Priorité familiale et récapitulatifs de virement</h2>
+        <p>30 personnes maximum par nuit, tous groupes cumulés. L’année familiale va du 1er juillet au 30 juin.</p>
+        <label className="block">Année de début
+          <input type="number" min="2000" max="2200" value={year} onChange={e => setYear(Number(e.target.value))} className={inputClass} />
+        </label>
+        <label className="block">Branche prioritaire {year}–{year + 1}
+          <select required value={branch} onChange={e => setBranch(e.target.value)} className={inputClass}>
+            <option value="">À configurer</option>
+            {Object.entries(branches).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select>
+        </label>
+        <label className="block">Tarif en EUR par personne estimée et par nuit
+          <input inputMode="decimal" value={rate} onChange={e => setRate(e.target.value)} className={inputClass} placeholder="À définir" />
+        </label>
+        <label className="block">Instructions de virement (bénéficiaire, IBAN, communication)
+          <textarea maxLength={2000} value={transfer} onChange={e => setTransfer(e.target.value)} className={inputClass} />
+        </label>
+        <p className="text-sm">Aucun paiement sur le site. Sans tarif ou instructions, les récapitulatifs restent en attente. Un tarif déjà validé pour un séjour ne change pas rétroactivement.</p>
+        <button disabled={busy} className={buttonClass}>Enregistrer</button>
+      </form>
 
-  if (loading) return <p role="status">Vérification des droits propriétaire...</p>
+      <section className="space-y-4 rounded-2xl bg-white/85 p-6">
+        <h2 className="text-xl font-semibold">Demandes et séjours</h2>
+        <select aria-label="Filtrer les demandes" value={filter} onChange={e => setFilter(e.target.value)} className={inputClass}>
+          <option value="active">À traiter et approuvées</option><option value="conflict">Conflits</option>
+          <option value="confirmed">Confirmées</option><option value="all">Toutes</option>
+        </select>
+        {visible.length === 0 && <p>Aucune demande dans cette vue.</p>}
+        <ul className="space-y-5">{visible.map(r => <li key={r.id} className="space-y-2 border-t border-slate-200 pt-4">
+          <h3 className="font-semibold">{r.guest_first_name} {r.guest_last_name} — {r.check_in} au {r.check_out}</h3>
+          <p>{r.branch ? branches[r.branch] : 'Branche à vérifier'} · {r.guest_count} personnes estimées · {r.stay_mode === 'open' ? 'Ouvert au partage' : 'Exclusif'} · {statusLabels[r.status]}</p>
+          <p><a href={`mailto:${r.guest_email}`} className="text-indigo-700 underline">{r.guest_email}</a> · horaires prévus : {r.planned_arrival_time.slice(0, 5)} / {r.planned_departure_time.slice(0, 5)}</p>
+          {r.guest_note && <p className="whitespace-pre-wrap">{r.guest_note}</p>}
+          {r.approved_at && <p className="text-sm">Approuvée le {new Date(r.approved_at).toLocaleString('fr-BE', { timeZone: 'Europe/Brussels' })} · échéance hors tour : {dateBefore(r.check_in, 21)}</p>}
+          {r.confirmed_at && <p className="text-sm">Confirmée le {new Date(r.confirmed_at).toLocaleString('fr-BE', { timeZone: 'Europe/Brussels' })}</p>}
+          {r.conflict && <p className="text-amber-900">Conflit de disponibilité ou de capacité : non confirmée.</p>}
+          {['pending', 'approved'].includes(r.status) && <div className="flex flex-wrap gap-3">
+            <button disabled={busy} className={buttonClass} onClick={() => void action(() => confirmBooking(r.id), 'Approbation enregistrée. Vérifie le statut : confirmation immédiate ou différée selon la branche et les disponibilités.')}>Approuver / réévaluer</button>
+            <button disabled={busy} className={buttonClass} onClick={() => void action(() => rejectBooking(r.id), 'Demande refusée.')}>Refuser</button>
+          </div>}
+          {r.status === 'confirmed' && !r.billing_ready && <button disabled={busy || !rate} className={buttonClass}
+            onClick={() => void action(() => validateBookingRate(r.id, centsFrom(rate)), 'Tarif du séjour validé.')}>
+            Valider le tarif de ce séjour : {rate || 'à définir'} EUR/personne/nuit
+          </button>}
+        </li>)}</ul>
+      </section>
 
-  return (
-    <section className="mx-auto max-w-5xl py-5 sm:py-8">
-      <p className="mb-2 text-sm font-medium uppercase tracking-wide text-indigo-700">La bicoque</p>
-      <h1 className="mb-6 text-4xl font-semibold sm:text-5xl">Gestion de la maison</h1>
-      {!owner && (
-        <div className="max-w-2xl rounded-2xl border border-[#5b5d43]/15 bg-white/85 p-6 shadow-[0_18px_50px_rgba(49,54,37,0.06)]">
-          <p className="mb-4 text-slate-700">
-            Le projet doit avoir exactement un utilisateur Auth avant l’activation des droits propriétaire.
-            Comme les inscriptions publiques sont désactivées, active ces droits avec ton compte propriétaire
-            avant d’ajouter ou d’importer d’autres comptes. Cette opération ne peut être effectuée qu’une fois.
-          </p>
-          {error && <p role="alert" className="mb-4 text-red-700">{error}</p>}
-          <button type="button" disabled={busy} onClick={() => void claim()}
-            className="rounded bg-indigo-700 px-5 py-3 font-medium text-white hover:bg-indigo-800 disabled:opacity-60">
-            {busy ? 'Activation...' : 'Activer les droits propriétaire'}
-          </button>
-        </div>
-      )}
+      <section className="rounded-2xl bg-white/85 p-6">
+        <h2 className="text-xl font-semibold">Bloquer la maison</h2>
+        <form className="mt-3 space-y-3" onSubmit={e => {
+          e.preventDefault()
+          void action(() => addOwnerBlock({ startDate: blockStart, endDate: blockEnd, note: blockNote }), 'Période bloquée.')
+        }}>
+          <label className="block">Arrivée incluse<input required type="date" min={brusselsToday()} value={blockStart} onChange={e => setBlockStart(e.target.value)} className={inputClass} /></label>
+          <label className="block">Départ exclu<input required type="date" min={blockStart} value={blockEnd} onChange={e => setBlockEnd(e.target.value)} className={inputClass} /></label>
+          <label className="block">Note<input maxLength={500} value={blockNote} onChange={e => setBlockNote(e.target.value)} className={inputClass} /></label>
+          <button disabled={busy || !blockStart || blockEnd <= blockStart} className={buttonClass}>Bloquer</button>
+        </form>
+        <ul className="mt-4 space-y-2">{periods.filter(p => p.source_type === 'owner_block').map(p => <li key={p.id}>
+          {p.start_date} — {p.end_date} {p.note}
+          <button disabled={busy} className="ml-3 text-red-700 underline" onClick={() => void action(() => removeOwnerBlock(p.id), 'Blocage supprimé.')}>Supprimer</button>
+        </li>)}</ul>
+      </section>
 
-      {owner && (
-        <div className="space-y-8">
-          <form onSubmit={saveCapacity} className="rounded-2xl border border-[#5b5d43]/15 bg-white/85 p-6 shadow-[0_18px_50px_rgba(49,54,37,0.06)]">
-            <h2 className="mb-3 text-xl font-semibold">Capacité d’accueil</h2>
-            <label htmlFor="capacity" className="mb-1 block font-medium">Nombre maximal de voyageurs</label>
-            <div className="flex flex-wrap gap-3">
-              <input id="capacity" type="number" min="1" step="1" required value={capacityInput}
-                onChange={event => setCapacityInput(event.target.value)}
-                className="w-40 rounded border border-slate-400 bg-white p-3" />
-              <button type="submit" disabled={busy || Number(capacityInput) === capacity}
-                className="rounded bg-indigo-700 px-4 py-2 font-medium text-white disabled:opacity-60">
-                Enregistrer
-              </button>
-            </div>
-            {capacity === null && <p className="mt-2 text-amber-800">La capacité doit être renseignée avant toute demande.</p>}
-          </form>
+      <section className="space-y-3 rounded-2xl bg-white/85 p-6">
+        <h2 className="text-xl font-semibold">Profils des membres</h2>
+        <p>Une correction de branche ne modifie pas les demandes déjà enregistrées.</p>
+        {members.map(member => <MemberEditor key={member.user_id} member={member} busy={busy} run={action} />)}
+      </section>
+      <section className="space-y-3 rounded-2xl bg-white/85 p-6">
+        <h2 className="text-xl font-semibold">Suivi des 50 derniers e-mails</h2>
+        <p>Un état « sent » indique l’acceptation par le fournisseur, pas la réception ni le paiement. Un envoi non résolu après 23 h nécessite une vérification manuelle pour éviter les doublons.</p>
+        {deliveries.length === 0 && <p>Aucun envoi enregistré.</p>}
+        <ul className="space-y-2">{deliveries.map(d => <li key={d.id}>
+          {d.kind} · {d.state} · {d.attempts} tentative(s) · {d.last_error ?? 'Aucune erreur enregistrée'}
+          {d.state !== 'sent' && <button disabled={busy} className="ml-3 underline" onClick={() => {
+            if (!window.confirm('Vérifie dans Resend que cet e-mail n’a PAS été accepté ou envoyé. Une réponse réseau incertaine peut cacher un envoi réussi. Confirmes-tu cette vérification avant de réautoriser l’envoi ?')) return
+            void action(async () => {
+              if (!supabase) throw new Error('Supabase indisponible.')
+              const { error } = await supabase.rpc('owner_retry_family_email', { p_id: d.id, p_delivery_checked: true })
+              if (error) throw new Error(getBookingErrorMessage(error))
+            }, 'Nouvelle tentative autorisée.')
+          }}>Réautoriser après vérification</button>}
+        </li>)}</ul>
+      </section>
+    </>}
+  </section>
+}
 
-          <section className="rounded-2xl border border-[#5b5d43]/15 bg-white/85 p-6 shadow-[0_18px_50px_rgba(49,54,37,0.06)]">
-            <h2 className="mb-3 text-xl font-semibold">Demandes des voyageurs</h2>
-            {requests.length === 0
-              ? <p className="text-slate-600">Aucune demande pour le moment.</p>
-              : <ul className="space-y-4">
-                  {requests.map(request => <li key={request.id} className="border-t border-slate-200 pt-4 first:border-0 first:pt-0">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h3 className="font-semibold">{dateValue(request.check_in)} — {dateValue(request.check_out)}</h3>
-                      <BookingStatus status={request.status} />
-                    </div>
-                    <p className="mt-2 text-sm"><strong>{request.guest_first_name} {request.guest_last_name}</strong> · Contact : <a className="text-indigo-700 underline" href={`mailto:${request.guest_email}`}>{request.guest_email}</a></p>
-                    <p className="mt-1 text-sm">{request.guest_count} voyageurs · arrivée prévue à {request.planned_arrival_time.slice(0, 5)} · départ prévu à {request.planned_departure_time.slice(0, 5)}</p>
-                    {request.guest_note && <p className="mt-2 whitespace-pre-wrap text-sm">{request.guest_note}</p>}
-                    {request.status === 'pending' && (
-                      <div className="mt-3 flex gap-3">
-                        <button type="button" disabled={busy} onClick={() => void runAction(() => confirmBooking(request.id), 'Le séjour est confirmé et ses dates sont bloquées.')}
-                          className="rounded bg-green-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-60">Confirmer</button>
-                        <button type="button" disabled={busy} onClick={() => void runAction(() => rejectBooking(request.id), 'La demande est refusée.')}
-                          className="rounded bg-slate-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-60">Refuser</button>
-                      </div>
-                    )}
-                  </li>)}
-                </ul>}
-          </section>
-
-          <section className="rounded-2xl border border-[#5b5d43]/15 bg-white/85 p-6 shadow-[0_18px_50px_rgba(49,54,37,0.06)]">
-            <h2 className="mb-3 text-xl font-semibold">Bloquer des dates</h2>
-            <form onSubmit={createBlock} className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="block-start" className="mb-1 block font-medium">Du (inclus)</label>
-                <input id="block-start" type="date" min={today}
-                  required value={blockStart} onChange={event => setBlockStart(event.target.value)}
-                  className="w-full rounded border border-slate-400 bg-white p-3" />
-              </div>
-              <div>
-                <label htmlFor="block-end" className="mb-1 block font-medium">Au (jour de départ, exclu)</label>
-                <input id="block-end" type="date" min={blockStart ? blockStart : today}
-                  required value={blockEnd} onChange={event => setBlockEnd(event.target.value)}
-                  className="w-full rounded border border-slate-400 bg-white p-3" />
-              </div>
-              <div className="sm:col-span-2">
-                <label htmlFor="block-note" className="mb-1 block font-medium">Note (facultative)</label>
-                <input id="block-note" type="text" maxLength={500} value={blockNote}
-                  onChange={event => setBlockNote(event.target.value)}
-                  className="w-full rounded border border-slate-400 bg-white p-3" />
-              </div>
-              <div className="sm:col-span-2">
-                <button type="submit" disabled={busy || !blockStart || !blockEnd || blockEnd <= blockStart}
-                  className="rounded bg-indigo-700 px-4 py-3 font-medium text-white disabled:opacity-60">Bloquer la période</button>
-              </div>
-            </form>
-            <ul className="mt-5 space-y-3">
-              {periods.map(period => <li key={period.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
-                <span>
-                  {dateValue(period.start_date)} — {dateValue(period.end_date)}
-                  {period.source_type === 'owner_block' ? ` · Bloquée${period.note ? ` : ${period.note}` : ''}` : ' · Séjour confirmé'}
-                </span>
-                {period.source_type === 'owner_block' && <button type="button" disabled={busy}
-                  onClick={() => void runAction(() => removeOwnerBlock(period.id), 'La période n’est plus bloquée.')}
-                  className="text-sm font-medium text-red-700 underline disabled:opacity-60">Supprimer le blocage</button>}
-              </li>)}
-            </ul>
-          </section>
-        </div>
-      )}
-      {error && owner && <p role="alert" className="mt-4 text-red-700">{error}</p>}
-      {notice && <p role="status" className="mt-4 text-green-800">{notice}</p>}
-    </section>
-  )
+function MemberEditor({ member, busy, run }: {
+  member: Member; busy: boolean; run: (fn: () => Promise<unknown>, message: string) => Promise<void>
+}) {
+  const [branch, setBranch] = useState(member.branch)
+  return <form className="flex flex-wrap items-center gap-3 border-t pt-3" onSubmit={e => {
+    e.preventDefault()
+    void run(async () => {
+      if (!supabase) throw new Error('Supabase indisponible.')
+      const { error } = await supabase.rpc('owner_update_member_profile', {
+        p_user_id: member.user_id, p_first_name: member.first_name, p_last_name: member.last_name, p_branch: branch,
+      })
+      if (error) throw new Error(getBookingErrorMessage(error))
+    }, 'Profil corrigé.')
+  }}>
+    <span>{member.first_name} {member.last_name}</span>
+    <select aria-label={`Branche de ${member.first_name} ${member.last_name}`} value={branch} onChange={e => setBranch(e.target.value)} className="rounded border p-2">
+      {Object.entries(branches).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+    </select>
+    <button disabled={busy || branch === member.branch} className={buttonClass}>Corriger</button>
+  </form>
 }

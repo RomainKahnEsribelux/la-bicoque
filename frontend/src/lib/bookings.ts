@@ -11,7 +11,14 @@ export interface BookingRequest {
   planned_arrival_time: string
   planned_departure_time: string
   guest_note: string | null
-  status: 'pending' | 'confirmed' | 'rejected' | 'cancelled'
+  status: 'pending' | 'approved' | 'confirmed' | 'rejected' | 'cancelled'
+  branch: string | null
+  stay_mode: 'open' | 'exclusive'
+  approved_at: string | null
+  confirmed_at: string | null
+  conflict: boolean
+  billing_ready: boolean
+  rate_cents: number | null
   created_at: string
 }
 
@@ -19,6 +26,8 @@ export interface OccupiedDates {
   start_date: string
   end_date: string
   guest_name: string | null
+  guest_count: number
+  stay_mode: 'open' | 'exclusive'
 }
 
 export interface OwnerOccupiedPeriod extends Omit<OccupiedDates, 'guest_name'> {
@@ -51,6 +60,13 @@ export function getBookingErrorMessage(error: { message: string; code?: string }
     booking_request_not_pending: 'Cette demande a déjà été traitée.',
     invalid_block_dates: 'Choisissez une période à bloquer valide, à partir d’aujourd’hui.',
     owner_block_not_found: 'Cette période bloquée n’existe plus.',
+    stay_outside_six_months: 'Tout le séjour doit être compris dans les six prochains mois.',
+    profile_required: 'Complète ton profil et ta branche avant de demander un séjour.',
+    priority_not_configured: 'Un admin doit définir la branche prioritaire de cette année familiale.',
+    verified_email_required: 'Confirme ton adresse e-mail avant de continuer.',
+    house_capacity_fixed_at_30: 'La capacité maximale est de 30 personnes.',
+    invalid_rate: 'Indique un tarif positif par personne et par nuit.',
+    booking_rate_already_validated: 'Le tarif de ce séjour a déjà été validé ou le séjour n’est pas confirmé.',
   }
 
   if (error.message.includes('account_email_required')) {
@@ -59,6 +75,9 @@ export function getBookingErrorMessage(error: { message: string; code?: string }
   const knownMessage = Object.entries(messages).find(([key]) => error.message.includes(key))
   if (knownMessage) return knownMessage[1]
   if (error.code === '23P01') return messages.occupied_dates_conflict
+  if (['PGRST202', 'PGRST205', '42P01', '42883'].includes(error.code ?? '')) {
+    return 'La base de réservation doit être mise à jour par un administrateur.'
+  }
   return 'Une erreur est survenue. Réessayez. Si le problème persiste, contactez le propriétaire.'
 }
 
@@ -88,7 +107,7 @@ export async function getOccupiedDates() {
 export async function getMyBookingRequests() {
   const { data, error } = await getClient()
     .from('booking_requests')
-    .select('id, guest_first_name, guest_last_name, guest_email, check_in, check_out, guest_count, planned_arrival_time, planned_departure_time, guest_note, status, created_at')
+    .select('id, guest_first_name, guest_last_name, guest_email, check_in, check_out, guest_count, planned_arrival_time, planned_departure_time, guest_note, status, created_at, branch, stay_mode, approved_at, confirmed_at, conflict, billing_ready, rate_cents')
     .order('created_at', { ascending: false })
   if (error) throw new Error(getBookingErrorMessage(error))
   if (!Array.isArray(data)) throw new Error('Impossible de lire les demandes de réservation. Réessaie.')
@@ -104,6 +123,7 @@ export async function submitBookingRequest(input: {
   arrivalTime: string
   departureTime: string
   note: string
+  stayMode: 'open' | 'exclusive'
 }) {
   const { data, error } = await getClient().rpc('submit_booking_request', {
     p_guest_first_name: input.guestFirstName.trim(),
@@ -114,6 +134,7 @@ export async function submitBookingRequest(input: {
     p_planned_arrival_time: input.arrivalTime,
     p_planned_departure_time: input.departureTime,
     p_guest_note: input.note.trim() || null,
+    p_stay_mode: input.stayMode,
   })
   if (error) throw new Error(getBookingErrorMessage(error))
   if (typeof data !== 'string') throw new Error('La demande n’a pas pu être confirmée par la base de données. Réessaie.')

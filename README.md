@@ -23,7 +23,8 @@ npm run dev                        # http://localhost:5173
 
 Ne jamais placer une clé `secret`/`service_role`, un mot de passe ou une chaîne
 de connexion dans une variable `VITE_` : ces valeurs seraient publiques.
-L'inscription publique doit être désactivée dans Supabase.
+L'inscription publique avec confirmation e-mail ne doit être activée qu'après
+la migration familiale qui sécurise l'attribution des droits administrateur.
 
 Les prochaines étapes de base de données, d'activation du propriétaire et le
 formulaire sont documentés dans [`docs/reservation.md`](./docs/reservation.md).
@@ -55,4 +56,6 @@ automatiquement sur Cloudflare Pages. Cloudflare compile le site a chaque push :
 ne pas committer le dossier `dist`, les fichiers `.env` ou la configuration MCP
 locale. Le depot prive ne rend pas le site publie prive.
 
-Voir [la procedure de deploiement](./frontend/README.md#cloudflare-pages-deployment).
+Le déploiement actuel utilise Cloudflare Workers avec assets statiques.
+Voir [la procédure de déploiement](./frontend/README.md#cloudflare-workers-deployment)
+et [la mise en service de la base et des e-mails](./supabase/README.md).

@@ -43,7 +43,7 @@ export default function Login() {
       <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">La bicoque</p>
       <h1 className="mb-4 text-3xl font-semibold">Connexion</h1>
       <p className="mb-6 leading-relaxed text-slate-600">
-        Connectez-vous avec le compte fourni par le propri&eacute;taire pour acc&eacute;der aux r&eacute;servations.
+        Connectez-vous avec votre adresse e-mail confirm&eacute;e pour acc&eacute;der aux r&eacute;servations.
       </p>
       <form onSubmit={submit} className="space-y-5">
         <div>
@@ -64,7 +64,8 @@ export default function Login() {
         </button>
       </form>
       <p className="mt-6 text-sm text-slate-600">
-        Pas de compte ou mot de passe oubli&eacute; ? Contactez le propri&eacute;taire.
+        Pas encore de compte ? <Link to="/inscription" className="text-indigo-700 underline">Inscrivez-vous</Link>.
+        {' '}Mot de passe oubli&eacute; ? Contactez un administrateur.
         {' '}<Link to="/" className="text-indigo-700 underline">Retour &agrave; l&apos;accueil</Link>
       </p>
     </section>

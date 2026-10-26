@@ -1,8 +1,12 @@
 import { useState } from 'react'
 import type { OccupiedDates } from '../lib/bookings'
+import { remainingCapacity, stayHasConflict } from '../lib/family'
 
 interface AvailabilityCalendarProps {
   today: string
+  maxDate: string
+  guestCount: number
+  stayMode: 'open' | 'exclusive'
   occupied: OccupiedDates[]
   arrival: string
   departure: string
@@ -23,16 +27,15 @@ function parseDate(value: string) {
   return new Date(year, month - 1, day)
 }
 
-function overlaps(startDate: string, endDate: string, occupied: OccupiedDates[]) {
-  return occupied.some(period => startDate < period.end_date && endDate > period.start_date)
-}
-
 function formatLongDate(value: string) {
   return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full' }).format(parseDate(value))
 }
 
 export default function AvailabilityCalendar({
   today,
+  maxDate,
+  guestCount,
+  stayMode,
   occupied,
   arrival,
   departure,
@@ -51,7 +54,7 @@ export default function AvailabilityCalendar({
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const cellCount = Math.ceil((firstWeekday + daysInMonth) / 7) * 7
   const selectedRangeHasConflict = Boolean(
-    arrival && departure && overlaps(arrival, departure, occupied),
+    arrival && departure && stayHasConflict(arrival, departure, occupied, guestCount, stayMode),
   )
 
   function selectDay(value: string, isOccupied: boolean) {
@@ -66,11 +69,10 @@ export default function AvailabilityCalendar({
       if (isOccupied) return
       onSelectArrival(value)
       onSelectDeparture('')
-      if (value <= today) onSelectionError('Choisis une date d’arrivée à partir d’aujourd’hui.')
       return
     }
 
-    if (overlaps(arrival, value, occupied)) {
+    if (stayHasConflict(arrival, value, occupied, guestCount, stayMode)) {
       onSelectionError('La période choisie traverse des dates occupées. Choisis un autre jour de départ.')
       return
     }
@@ -87,12 +89,14 @@ export default function AvailabilityCalendar({
         </div>
         <div className="flex items-center gap-3">
           <button type="button" aria-label="Mois précédent"
+            disabled={dateKey(visibleMonth).slice(0, 7) <= today.slice(0, 7)}
             onClick={() => setVisibleMonth(new Date(year, month - 1, 1))}
             className="rounded border border-slate-400 px-3 py-2 font-medium hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700">
             <span aria-hidden="true">←</span>
           </button>
           <h3 aria-live="polite" className="min-w-36 text-center font-semibold capitalize">{monthLabel}</h3>
           <button type="button" aria-label="Mois suivant"
+            disabled={dateKey(visibleMonth).slice(0, 7) >= maxDate.slice(0, 7)}
             onClick={() => setVisibleMonth(new Date(year, month + 1, 1))}
             className="rounded border border-slate-400 px-3 py-2 font-medium hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700">
             <span aria-hidden="true">→</span>
@@ -103,6 +107,7 @@ export default function AvailabilityCalendar({
       <ul aria-label="Légende des disponibilités" className="my-5 flex flex-wrap gap-x-5 gap-y-2 text-sm">
         <li className="flex items-center gap-2"><span aria-hidden="true" className="size-4 rounded border border-green-700 bg-green-100" />Libre</li>
         <li className="flex items-center gap-2"><span aria-hidden="true" className="size-4 rounded border border-red-700 bg-red-100" />Occupé</li>
+        <li>Les séjours ouverts peuvent être partagés dans la limite de 30 personnes.</li>
         <li className="flex items-center gap-2"><span aria-hidden="true" className="size-4 rounded border border-slate-400 bg-slate-200" />Passé</li>
       </ul>
       <p className="mb-3 text-sm text-slate-600">
@@ -126,23 +131,24 @@ export default function AvailabilityCalendar({
           const value = dateKey(new Date(year, month, day))
           const isPast = value < today
           const period = occupied.find(item => value >= item.start_date && value < item.end_date)
-          const isOccupied = Boolean(period)
+          const remaining = remainingCapacity(value, occupied, stayMode)
+          const isOccupied = remaining < guestCount
           const isArrival = value === arrival
           const isDeparture = value === departure
           const inSelectedRange = Boolean(arrival && departure && value > arrival && value < departure)
           const isToday = value === today
           const canSelectOccupiedCheckout = Boolean(
             isOccupied && arrival && (!departure || isDeparture) &&
-            value > arrival && !overlaps(arrival, value, occupied),
+            value > arrival && !stayHasConflict(arrival, value, occupied, guestCount, stayMode),
           )
           const stateLabel = isPast ? 'passé'
             : isOccupied ? `${canSelectOccupiedCheckout ? 'occupé, mais départ possible ce jour' : 'occupé, indisponible'}${period?.guest_name ? `, séjour de ${period.guest_name}` : ''}`
-              : 'libre'
+              : `disponible, ${remaining} place(s) restante(s)`
           const selectionLabel = isArrival ? ' arrivée sélectionnée'
             : isDeparture ? ' départ sélectionné'
               : inSelectedRange ? ' dans la période choisie'
                 : ''
-          const disabled = isPast || (isOccupied && !canSelectOccupiedCheckout)
+          const disabled = isPast || value > maxDate || (value === maxDate && !arrival) || (isOccupied && !canSelectOccupiedCheckout)
           const stateColour = isPast
             ? 'border-slate-300 bg-slate-200 text-slate-500'
             : isOccupied
@@ -190,7 +196,7 @@ export default function AvailabilityCalendar({
           <h3 id="confirmed-stays-title" className="font-semibold">Séjours confirmés</h3>
           <ul className="mt-2 space-y-1 text-sm text-slate-700">
             {occupied.filter(period => period.guest_name).map(period => (
-              <li key={`${period.start_date}-${period.end_date}`}>
+              <li key={`${period.start_date}-${period.end_date}-${period.guest_name}`}>
                 {formatLongDate(period.start_date)} — départ {formatLongDate(period.end_date)} : <strong>{period.guest_name}</strong>
               </li>
             ))}

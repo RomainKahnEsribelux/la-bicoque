@@ -10,6 +10,9 @@ import {
   submitBookingRequest,
 } from '../lib/bookings'
 import type { BookingRequest, OccupiedDates } from '../lib/bookings'
+import { branches, brusselsToday, dateBefore, familyYear, getPriorities, sixMonthsFrom, stayHasConflict } from '../lib/family'
+import type { Priority } from '../lib/family'
+import { getMyProfile } from '../lib/profiles'
 
 function localDateString(date: Date) {
   const year = date.getFullYear()
@@ -22,10 +25,6 @@ function followingDate(value: string) {
   const date = new Date(`${value}T12:00:00`)
   date.setDate(date.getDate() + 1)
   return localDateString(date)
-}
-
-function overlaps(input: { checkIn: string; checkOut: string }, occupied: OccupiedDates[]) {
-  return occupied.some(period => input.checkIn < period.end_date && input.checkOut > period.start_date)
 }
 
 function formatDate(value: string) {
@@ -45,12 +44,14 @@ const fullHourOptions = Array.from(
 function BookingStatus({ status }: { status: BookingRequest['status'] }) {
   const labels: Record<BookingRequest['status'], string> = {
     pending: 'En attente de confirmation',
+    approved: 'Approuvée — en attente de confirmation',
     confirmed: 'Confirmée',
     rejected: 'Refusée',
     cancelled: 'Annulée',
   }
   const colours: Record<BookingRequest['status'], string> = {
     pending: 'bg-amber-100 text-amber-900',
+    approved: 'bg-blue-100 text-blue-900',
     confirmed: 'bg-green-100 text-green-900',
     rejected: 'bg-red-100 text-red-900',
     cancelled: 'bg-slate-200 text-slate-800',
@@ -76,19 +77,31 @@ export default function Booking() {
   const [arrivalTime, setArrivalTime] = useState('')
   const [departureTime, setDepartureTime] = useState('')
   const [note, setNote] = useState('')
-  const [today] = useState(() => localDateString(new Date()))
+  const [stayMode, setStayMode] = useState<'open' | 'exclusive'>('open')
+  const [priorities, setPriorities] = useState<Priority[]>([])
+  const [profileBranch, setProfileBranch] = useState('')
+  const today = brusselsToday()
+  const maxDate = sixMonthsFrom(today)
 
   const reload = useCallback(async () => {
     setAvailabilityError(null)
     try {
-      const [nextCapacity, nextOccupied, nextRequests] = await Promise.all([
+      const [nextCapacity, nextOccupied, nextRequests, nextPriorities, profile] = await Promise.all([
         getBookingCapacity(),
         getOccupiedDates(),
         getMyBookingRequests(),
+        getPriorities(),
+        getMyProfile(),
       ])
       setCapacity(nextCapacity)
       setOccupied(nextOccupied)
       setRequests(nextRequests)
+      setPriorities(nextPriorities)
+      if (profile) {
+        setProfileBranch(profile.branch)
+        setGuestFirstName(value => value || profile.first_name)
+        setGuestLastName(value => value || profile.last_name)
+      }
       setAvailabilityLoaded(true)
     } catch (loadError) {
       setAvailabilityLoaded(false)
@@ -109,7 +122,8 @@ export default function Booking() {
   }, [reload])
 
   const minimumDeparture = followingDate(checkIn || today)
-  const alreadyOccupied = checkIn && checkOut && overlaps({ checkIn, checkOut }, occupied)
+  const alreadyOccupied = checkIn && checkOut && stayHasConflict(checkIn, checkOut, occupied, Number(guestCount), stayMode)
+  const priority = priorities.find(p => p.start_year === familyYear(checkIn || today))
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -136,7 +150,11 @@ export default function Booking() {
       setError('Indique les dates et les deux heures pleines prévues.')
       return
     }
-    if (overlaps({ checkIn, checkOut }, occupied)) {
+    if (checkIn < today || checkOut > maxDate || checkOut <= checkIn) {
+      setError('Tout le séjour doit être dans les six prochains mois.')
+      return
+    }
+    if (stayHasConflict(checkIn, checkOut, occupied, Number(guestCount), stayMode)) {
       setError('Ces dates ne sont pas disponibles. Choisis une autre période.')
       return
     }
@@ -152,6 +170,7 @@ export default function Booking() {
         arrivalTime,
         departureTime,
         note,
+        stayMode,
       })
       setCheckIn('')
       setCheckOut('')
@@ -177,7 +196,7 @@ export default function Booking() {
       <p className="mb-2 text-sm font-medium uppercase tracking-wide text-indigo-700">La bicoque</p>
       <h1 className="mb-3 text-4xl font-semibold sm:text-5xl">Demander un séjour</h1>
       <p className="mb-8 max-w-3xl leading-relaxed text-slate-700">
-        La demande concerne la maison entière. Les heures indiquées sont tes horaires prévus ;
+        Choisis un séjour ouvert au partage ou exclusif. Les heures indiquées sont tes horaires prévus ;
         le propriétaire les confirmera avec le séjour. L’envoi d’une demande ne réserve pas les dates.
       </p>
 
@@ -200,6 +219,9 @@ export default function Booking() {
 
           <AvailabilityCalendar
             today={today}
+            maxDate={maxDate}
+            guestCount={Number(guestCount) || 1}
+            stayMode={stayMode}
             occupied={occupied}
             arrival={checkIn}
             departure={checkOut}
@@ -218,6 +240,20 @@ export default function Booking() {
           />
 
           <form onSubmit={submit} className="space-y-5 rounded-2xl border border-[#5b5d43]/15 bg-white/85 p-5 shadow-[0_18px_50px_rgba(49,54,37,0.06)] sm:p-7">
+            <p className="rounded bg-amber-50 p-3">
+              {priority ? <>Branche prioritaire {priority.start_year}–{priority.start_year + 1} : <strong>{branches[priority.branch]}</strong>.
+                {profileBranch !== priority.branch && checkIn
+                  ? <> Après approbation, confirmation au plus tôt le {formatDate(dateBefore(checkIn, 21))}. Les dates ne sont pas garanties avant confirmation.</>
+                  : ' Chaque demande doit être approuvée par un admin.'}</>
+                : 'La priorité de cette année familiale reste à configurer par un admin.'}
+            </p>
+            <label className="block font-medium">Type de séjour
+              <select value={stayMode} onChange={e => setStayMode(e.target.value === 'open' ? 'open' : 'exclusive')}
+                className="mt-1 block w-full rounded border border-slate-400 bg-white p-3">
+                <option value="open">Ouvert : d’autres groupes peuvent partager les dates</option>
+                <option value="exclusive">Exclusif : la maison pour ce groupe</option>
+              </select>
+            </label>
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
                 <label htmlFor="guest-first-name" className="mb-1 block font-medium">Prénom</label>
@@ -236,7 +272,7 @@ export default function Booking() {
               </div>
               <div>
                 <label htmlFor="check-in" className="mb-1 block font-medium">Date d’arrivée</label>
-                <input id="check-in" type="date" required min={today} value={checkIn}
+                <input id="check-in" type="date" required min={today} max={dateBefore(maxDate, 1)} value={checkIn}
                   onChange={event => {
                     setCheckIn(event.target.value)
                     setError(null)
@@ -247,7 +283,7 @@ export default function Booking() {
               </div>
               <div>
                 <label htmlFor="check-out" className="mb-1 block font-medium">Date de départ</label>
-                <input id="check-out" type="date" required min={minimumDeparture}
+                <input id="check-out" type="date" required min={minimumDeparture} max={maxDate}
                   value={checkOut} onChange={event => {
                     setCheckOut(event.target.value)
                     setError(null)
@@ -256,7 +292,7 @@ export default function Booking() {
                   className="w-full rounded border border-slate-400 bg-white p-3" />
               </div>
               <div>
-                <label htmlFor="guest-count" className="mb-1 block font-medium">Nombre de voyageurs</label>
+                <label htmlFor="guest-count" className="mb-1 block font-medium">Nombre estimé de voyageurs du groupe</label>
                 <input id="guest-count" type="number" min="1" max={capacity ?? undefined} step="1"
                   required value={guestCount} onChange={event => setGuestCount(event.target.value)}
                   className="w-full rounded border border-slate-400 bg-white p-3" />
@@ -307,9 +343,13 @@ export default function Booking() {
                       <BookingStatus status={request.status} />
                     </div>
                     <p className="mt-2 text-sm text-slate-700">
-                      {request.guest_count} voyageurs · arrivée prévue à {formatTime(request.planned_arrival_time)}
+                      {request.guest_count} voyageurs estimés · {request.stay_mode === 'open' ? 'ouvert au partage' : 'exclusif'} · arrivée prévue à {formatTime(request.planned_arrival_time)}
                       {' '}· départ prévu à {formatTime(request.planned_departure_time)}
                     </p>
+                    {request.status === 'approved' && <p className="mt-2 text-sm text-blue-900">
+                      Demande approuvée, mais pas encore réservée. Pour les branches hors tour, confirmation au plus tôt le {formatDate(dateBefore(request.check_in, 21))}, sous réserve de place.
+                    </p>}
+                    {request.conflict && <p className="mt-2 text-sm text-amber-900">Ces dates ou cet effectif ne sont actuellement pas compatibles avec les séjours confirmés. Les admins doivent réexaminer la demande.</p>}
                     {request.guest_note && <p className="mt-2 whitespace-pre-wrap text-sm">{request.guest_note}</p>}
                   </li>)}
                 </ul>}

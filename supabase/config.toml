@@ -1,0 +1,4 @@
+project_id = "la-bicoque"
+
+[functions.family-jobs]
+verify_jwt = false

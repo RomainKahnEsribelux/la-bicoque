@@ -1,44 +1,166 @@
-# Supabase (backend)
+# Supabase : base, comptes, contenus privés et automatisation
 
-Backend géré gratuitement (free tier) : base Postgres, Auth, Storage, Edge Functions, API auto-générée.
+## Configuration publique du frontend
 
-## Démarrage
+Dans `frontend/.env.local` pour le développement et les **variables de build**
+Cloudflare pour la production :
 
-1. Créer un projet sur <https://supabase.com/dashboard>.
-2. Copier `Project URL` et la clé **publishable** (ou l'ancienne clé `anon`) dans `frontend/.env.local` :
+```dotenv
+VITE_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
+VITE_SUPABASE_ANON_KEY=your-publishable-key
+```
 
-   ```dotenv
-   VITE_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
-   VITE_SUPABASE_ANON_KEY=your-publishable-key
-   ```
+Les variables `VITE_` sont publiques. Ne jamais y mettre une clé secrète,
+`service_role`, un mot de passe ou des coordonnées bancaires.
 
-   Le nom `VITE_SUPABASE_ANON_KEY` accepte aussi une clé `sb_publishable_`.
-   Ne jamais utiliser une clé `secret` / `service_role`, un mot de passe ou une chaîne de connexion :
-   les variables `VITE_` sont publiques dans le site compilé.
-3. (Optionnel) Lier le projet avec la CLI :
+## Migrations : vérifier l'état réel avant toute exécution
 
-   ```bash
-   npx supabase login
-   npx supabase init
-   npx supabase link --project-ref YOUR-PROJECT-REF
-   ```
+Sauvegarder les données existantes et vérifier les tables/fonctions et l'historique
+de migrations du projet. Les migrations s'exécutent **dans cet ordre** :
 
-4. Les migrations SQL vont dans `supabase/migrations/` puis : `npx supabase db push`.
+1. `20261016090000_booking_requests.sql` : base historique ;
+2. `20261021100000_family_bookings.sql` : profils, admins, priorités familiales,
+   partage, capacité de 30, J−21, tarifs et file d'e-mails ;
+3. `20261021120000_family_content.sql` : articles/documents et Storage privé.
 
-> ⚠️ Toujours activer la Row Level Security (RLS) sur les tables exposées au frontend.
+Ne pas relancer une migration déjà exécutée, ni modifier une migration historique
+pour mettre à jour une base existante. Une ancienne version de la première
+migration peut nécessiter une adaptation distincte après examen.
+La nouvelle migration familiale est transactionnelle.
 
-## Connexion au site
+Utiliser la CLI Supabase liée au bon projet (`supabase db push`) si l'historique est
+cohérent, ou le SQL Editor après contrôle explicite. Le push GitHub ne migre pas la base.
 
-- Dans Authentication, désactiver **Allow new users to sign up**. Masquer un formulaire d'inscription ne suffit pas.
-- Dans Authentication > Users, créer le compte temporaire avec une adresse e-mail confirmée et un mot de passe privé.
-- La page `/connexion` utilise Supabase Auth (e-mail / mot de passe). Aucun compte ni mot de passe n'est codé dans React.
-- La session est restaurée au rechargement. La déconnexion ferme la session locale de ce navigateur, pas celles des autres appareils.
-- Sans session, `/reservation` redirige vers `/connexion`. Après connexion, le site affiche la page de réservation.
-- Une migration de réservations se trouve dans `supabase/migrations/20261016090000_booking_requests.sql`. Après vérification, l'exécuter dans le SQL Editor Supabase comme décrit dans `docs/reservation.md`.
-- Les demandes collectent le prénom et le nom du voyageur et limitent les heures d'arrivée/de départ à des heures pleines. Le calendrier authentifié partage le nom des séjours confirmés, mais jamais les e-mails ou les messages des voyageurs.
-- Les droits propriétaire sont activés une fois dans `/gestion`. Le mécanisme refuse l'activation si le projet contient autre chose que l'unique utilisateur Auth initial ; désactiver l'inscription publique et activer le compte propriétaire avant d'ajouter les comptes invités.
-- La navigation React n'est pas une autorisation de base de données. Les demandes et dates occupées sont protégées par RLS et des fonctions PostgreSQL.
-- La capacité reste non configurée jusqu'à ce que le propriétaire l'enregistre depuis `/gestion`. Les demandes sont refusées avant cela.
-- Pour un compte perdu ou un mot de passe oublié, contacter le propriétaire. Pas d'inscription publique ni de récupération de mot de passe dans cette première étape.
+Le projet hébergé a reçu ces trois migrations via MCP, avec les versions serveur
+`20261025220005` (`booking_requests`), `20261025220849` (`family_bookings`) et
+`20261025220901` (`family_content`). Elles sont déjà installées : ne pas les
+réexécuter. Avant tout futur `supabase db push`, réconcilier explicitement
+l'historique distant avec les versions des fichiers locaux ci-dessus.
 
-Avant publication sur Cloudflare Pages, configurer les URL d'authentification Supabase pour le domaine réel et vérifier les limites du service.
+## Administrateurs et inscriptions
+
+Les inscriptions ne doivent être ouvertes **qu'après** l'installation de la
+migration familiale : elle retire l'ancienne fonction d'auto-activation.
+Dans Auth, activer l'inscription e-mail et **Confirm email**.
+
+Les comptes admins sont provisionnés par une liste autorisée serveur, jamais
+par des métadonnées d'inscription. Les adresses réelles restent dans la base
+privée, pas dans la migration du dépôt public. Configurer le premier compte
+convenu, puis le second lorsqu'il sera connu, avec cette procédure :
+
+```sql
+-- Remplacer uniquement par l'adresse vérifiée de l'administrateur.
+insert into public.admin_allowlist(email) values ('admin@example.com');
+-- Si le compte est déjà confirmé, ce UPDATE déclenche le provisionnement.
+update auth.users set email_confirmed_at=email_confirmed_at
+where lower(email)='admin@example.com' and email_confirmed_at is not null;
+```
+
+Ne pas utiliser cette procédure pour un troisième admin. Aucun compte ni mot de
+passe n'est créé par ces instructions. Les comptes existants complètent leur
+profil sur `/profil`. Les changements de branche se font dans `/gestion`.
+
+Dans Auth → URL Configuration :
+- Site URL : `https://la-bicoque.romain-kahn.workers.dev` ;
+- autoriser explicitement `https://la-bicoque.romain-kahn.workers.dev/auth/callback`
+  et les URL locales nécessaires au développement.
+
+Configurer un SMTP de production pour Auth (éventuellement Resend SMTP). Le service
+d'envoi Auth par défaut a des restrictions ; ne pas présumer qu'il enverra les
+confirmations à tous les nouveaux comptes. Valider un vrai e-mail de confirmation.
+
+## E-mails métier et tâches planifiées
+
+Créer un compte Resend et vérifier un expéditeur autorisé. Configurer uniquement
+dans les secrets **serveur** Supabase :
+
+- `RESEND_API_KEY` ;
+- `FAMILY_EMAIL_FROM` (expéditeur vérifié) ;
+- `FAMILY_JOBS_SECRET` (valeur aléatoire forte, jamais une clé publique).
+
+`SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont fournis à l'Edge Function par
+Supabase. Ne pas les recopier dans le frontend ou le dépôt.
+
+Déployer :
+
+```powershell
+supabase functions deploy family-jobs
+```
+
+La fonction utilise `verify_jwt=false` et vérifie elle-même **obligatoirement**
+`Authorization: Bearer FAMILY_JOBS_SECRET`. Sans ce secret valide, elle renvoie 401.
+Elle traite les confirmations et la file d'envoi ; seules les fonctions SQL
+internes accordées au rôle serveur sont appelables par le service.
+
+Dans Supabase Vault, créer `family_jobs_url` (URL HTTPS complète de l'Edge Function)
+et `family_jobs_secret` (même valeur que `FAMILY_JOBS_SECRET`), sans les mettre dans
+le chat ou Git. Vérifier les disponibilités/quotas Cron, Vault, pg_net et Edge Functions.
+Exécuter ensuite [setup-family-cron.sql](./setup-family-cron.sql) : confirmations
+et envois sont déclenchés toutes les 15 minutes.
+
+Contrôler `cron.job_run_details`, les réponses pg_net, journaux Edge Functions et
+la file `email_outbox` visible dans Gestion. Un job HTTP accepté n'est pas une
+preuve de livraison. Tester une confirmation et un rappel réels avant d'annoncer
+l'automatisation opérationnelle.
+
+Les reprises se limitent à 8 tentatives dans une fenêtre de 23 h pour rester dans
+la fenêtre d'idempotence du fournisseur. Après vérification de l'absence d'envoi
+chez Resend, un admin peut réautoriser manuellement un message en échec/expiré.
+
+## Réglages métier
+
+Dans Gestion :
+- priorité **Hélène pour juillet 2026–juin 2027**, puis configurer les périodes suivantes ;
+- capacité fixée au maximum demandé de **30 personnes** ;
+- tarif EUR par personne estimée et par nuit et instructions de virement ;
+- validation du tarif des séjours confirmés avant qu'un tarif ait été défini.
+
+Les données bancaires sont en base privée, jamais dans le code public.
+Sans montant validé ou instructions, les rappels restent en attente.
+Voir [les règles complètes](../docs/reservation.md).
+
+## Archives
+
+La migration crée `family_articles`, `family_documents` et le bucket privé
+`family-archives`. Les lecteurs doivent avoir un e-mail confirmé ; les écritures
+sont réservées aux admins. Des URL signées temporaires servent les fichiers.
+Conserver les textes et fichiers familiaux hors du dépôt public. Les pages affichent
+explicitement l'attente d'import tant qu'aucune donnée n'a été chargée.
+
+L'inventaire autorisé est conservé dans l'espace privé de session, pas dans Git.
+L'import d'occupations est bloqué jusqu'à réception et validation de l'export Excel.
+Ne pas modifier ni supprimer les données de l'ancien site pendant la préparation.
+
+L'utilitaire `scripts/import-family-content.mjs` valide un manifeste JSON et des
+fichiers locaux avant toute écriture :
+
+```powershell
+# Validation seule, sans réseau ni secret :
+node .\supabase\scripts\import-family-content.mjs 'C:\private-archives\manifest.json'
+# Après configuration privée de SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY :
+node .\supabase\scripts\import-family-content.mjs 'C:\private-archives\manifest.json' --apply
+```
+
+Exécuter depuis la racine, après restauration des dépendances frontend. Le
+manifeste et ses médias doivent rester **hors du dépôt**. `--help` donne le schéma :
+`articles` (slug, titre, texte brut, provenance) et `documents` (titre, fichier local,
+provenance et article associé). L'import est rejouable par slug et chemin stable,
+mais n'est pas une transaction unique entre base et Storage ; en cas d'échec,
+inspecter le message et reprendre le même manifeste après correction.
+Les anciens PDF, images et documents Office sont pris en charge ; les fichiers
+HTML et les chemins sortant du dossier de manifeste sont refusés.
+
+## Validation locale
+
+Depuis `frontend` :
+
+```powershell
+npm test
+npm run build
+npm run lint
+```
+
+Les tests utilisent PostgreSQL embarqué (PGlite) avec des schémas Auth/Storage de
+test. Ils vérifient les migrations et règles SQL ; ils ne remplacent pas le test
+multi-connexion sur PostgreSQL hébergé, les e-mails Resend, ni les politiques
+Storage du service réel. Ne jamais utiliser des mots de passe réels dans les tests.
