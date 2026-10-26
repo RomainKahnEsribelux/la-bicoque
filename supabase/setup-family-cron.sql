@@ -1,4 +1,5 @@
--- Run only after migrations and Edge Function deployment.
+-- Optional EMAIL delivery only, after migrations and Edge Function deployment.
+-- SQL confirmations are scheduled independently by the confirmation cron migration.
 -- Add Vault secrets family_jobs_url and family_jobs_secret through the dashboard.
 -- family_jobs_url: https://PROJECT.supabase.co/functions/v1/family-jobs
 -- family_jobs_secret: same strong random value as the Edge Function secret.
@@ -12,13 +13,6 @@ begin
     raise exception 'Configure both family job Vault secrets before scheduling';
   end if;
 end $$;
-
-select cron.schedule(
-  'family-confirmations',
-  '*/15 * * * *',
-  $$select public.process_family_bookings();$$
-)
-where not exists (select 1 from cron.job where jobname='family-confirmations');
 
 select cron.schedule(
   'family-email-delivery',

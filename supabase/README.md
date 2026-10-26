@@ -71,6 +71,41 @@ confirmations à tous les nouveaux comptes. Valider un vrai e-mail de confirmati
 
 ## E-mails métier et tâches planifiées
 
+### Confirmations automatiques seules (sans e-mail)
+
+La migration `20261026170000_family_confirmation_cron.sql` installe `pg_cron`
+et programme `family-confirmations` toutes les 15 minutes. Elle appelle
+`public.process_family_bookings()` côté serveur, sans navigateur, Resend, Vault
+ni Edge Function. Elle ne rend pas cette fonction accessible aux membres.
+
+Seules les demandes approuvées sont traitées : priorité familiale de l'arrivée,
+J−21 inclus pour les autres branches, dates disponibles et capacité par nuit.
+Les échéances utilisent la date de Bruxelles. Les conflits ou paramètres manquants
+restent à traiter dans Gestion. Le traitement prépare aussi les notifications et
+rappels dans `email_outbox`, mais **n'envoie aucun e-mail**.
+
+Cette migration est installée sur le projet hébergé via MCP sous la version
+`20261026164315` (`family_confirmation_cron`). Ne pas la réexécuter avec une
+autre version sans réconcilier l'historique distant et les fichiers locaux.
+
+Contrôler le calendrier et les exécutions depuis le SQL Editor ou MCP :
+
+```sql
+select jobid, jobname, schedule, command, active
+from cron.job where jobname = 'family-confirmations';
+
+select d.runid, d.status, d.return_message, d.start_time, d.end_time
+from cron.job_run_details d join cron.job j on j.jobid = d.jobid
+where j.jobname = 'family-confirmations'
+order by d.start_time desc limit 10;
+
+-- Suspension (remplacer false par true pour reprendre).
+select cron.alter_job(jobid, active := false)
+from cron.job where jobname = 'family-confirmations';
+```
+
+### Livraison des e-mails (activation séparée, facultative)
+
 Créer un compte Resend et vérifier un expéditeur autorisé. Configurer uniquement
 dans les secrets **serveur** Supabase :
 
@@ -95,8 +130,10 @@ internes accordées au rôle serveur sont appelables par le service.
 Dans Supabase Vault, créer `family_jobs_url` (URL HTTPS complète de l'Edge Function)
 et `family_jobs_secret` (même valeur que `FAMILY_JOBS_SECRET`), sans les mettre dans
 le chat ou Git. Vérifier les disponibilités/quotas Cron, Vault, pg_net et Edge Functions.
-Exécuter ensuite [setup-family-cron.sql](./setup-family-cron.sql) : confirmations
-et envois sont déclenchés toutes les 15 minutes.
+Exécuter ensuite [setup-family-cron.sql](./setup-family-cron.sql) pour programmer
+uniquement la livraison des e-mails toutes les 15 minutes. Ne pas exécuter ce
+script pour activer seulement J−21. Avant la livraison, vérifier les messages
+déjà en attente : les reprises automatiques expirent après 23 heures.
 
 Contrôler `cron.job_run_details`, les réponses pg_net, journaux Edge Functions et
 la file `email_outbox` visible dans Gestion. Un job HTTP accepté n'est pas une
