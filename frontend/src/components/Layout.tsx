@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { supabase } from '../lib/supabase'
 import FamilyBanner from './FamilyBanner'
-import { isSiteOwner } from '../lib/bookings'
+import { canManageBookings } from '../lib/management'
 import { useEffect } from 'react'
 
 export default function Layout() {
@@ -16,9 +16,13 @@ export default function Layout() {
     if (!session?.user.email_confirmed_at) return
     let active = true
     const userId = session.user.id
-    void isSiteOwner().then(owner => { if (active) setOwnerId(owner ? userId : null) })
-      .catch(() => { if (active) setError('Impossible de vérifier les droits de gestion. Réessaie en rechargeant la page.') })
-    return () => { active = false }
+    const refresh = () => {
+      void canManageBookings().then(owner => { if (active) setOwnerId(owner ? userId : null) })
+        .catch(() => { if (active) setError('Impossible de vérifier les droits de gestion. Réessaie en rechargeant la page.') })
+    }
+    refresh()
+    window.addEventListener('management-roles-changed', refresh)
+    return () => { active = false; window.removeEventListener('management-roles-changed', refresh) }
   }, [session?.user.id, session?.user.email_confirmed_at])
 
   async function signOut() {
@@ -45,6 +49,7 @@ export default function Layout() {
             <Link to="/a-propos" className="site-nav-link">La maison</Link>
             <Link to="/reservation" className="site-nav-link">Réservation</Link>
             <Link to="/contact" className="site-nav-link">Contact</Link>
+            <Link to="/activites" className="site-nav-link">Activités</Link>
             {!loading && !authError && (session
               ? <>
                   <Link to="/histoires" className="site-nav-link">Histoires</Link>

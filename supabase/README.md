@@ -39,6 +39,32 @@ l'historique distant avec les versions des fichiers locaux ci-dessus.
 
 ## Administrateurs et inscriptions
 
+### Responsables de branche
+
+La migration `20261029160000_branch_managers.sql` conserve `site_owners` pour
+les deux admins généraux et ajoute trois places dans `branch_managers`.
+Elle est installée sur le projet hébergé via MCP sous la version serveur
+`20261029154421` (`branch_managers`) : ne pas la rejouer sans réconcilier l'historique.
+`is_site_owner` ne change pas de sens ; `can_manage_bookings` contrôle les
+opérations de réservation et la lecture de gestion pour les responsables.
+Les RPC de nomination/remplacement/retrait vérifient les droits, le motif,
+la branche, le titulaire attendu, les places disponibles et le dernier admin.
+Elles utilisent le verrou de provisionnement `716204161` ; les opérations de
+réservation conservent le verrou `716204162`.
+
+Les admins généraux seuls gèrent les admins généraux et les branches des profils.
+Les responsables peuvent gérer les trois places de responsable et les réservations
+de toutes les branches. Ils n'ont ni droit d'écriture sur les archives, ni accès
+aux e-mails en attente. Les anciennes fonctions d'invitation sont internes et
+inaccessibles aux membres ; le wrapper contrôle les invitations admin et exige
+un motif. Le retrait d'un admin retire son allowlist et annule l'invitation
+correspondante pour éviter un reprovisionnement à la prochaine vérification.
+
+`public_contacts` contient uniquement les coordonnées explicitement autorisées
+pour publication. Le chargement de ces contacts est une opération DML privée ;
+ne pas recopier une liste d'e-mails Auth dans cette table. L'annuaire des
+responsables est une RPC réservée aux comptes vérifiés, sans e-mail.
+
 La migration `20261026190000_member_workflows.sql` ajoute les invitations
 contrôlées, annulations, paiements totaux, journal et fiche pratique privée.
 Elle est suivie de `20261026191000_invitation_capacity.sql`, qui verrouille
@@ -55,7 +81,7 @@ Les invitations sont gérées dans Gestion, sans appel Auth admin depuis React.
 Une invitation admin réserve un des deux emplacements et la confirmation de
 l'adresse provisionne les droits. Un compte déjà confirmé reçoit ses droits
 immédiatement. Annuler une invitation non acceptée libère sa réservation ;
-aucune révocation d'admin actif n'est fournie par cette interface.
+La liste des membres permet aussi le retrait motivé d'un admin actif, sauf le dernier.
 L'inscription publique reste libre, sans contrôle d'appartenance familiale.
 
 Les inscriptions ne doivent être ouvertes **qu'après** l'installation de la

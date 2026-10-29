@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { getBookingErrorMessage } from './bookings'
 import type { BookingRequest } from './bookings'
+import { getManagementMembers } from './management'
 export { stayStatus, cancellationAllowed, confirmationEligibility, formatMoney } from './familyRules'
 
 export interface Stay extends BookingRequest {
@@ -36,12 +37,11 @@ export async function getMemberManagement() {
   const [invitations, administrators] = await Promise.all([
     client().from('member_invitations').select('id,email,role,created_at,accepted_at,cancelled_at')
       .order('created_at', { ascending: false }).returns<Invitation[]>(),
-    client().rpc('owner_list_administrators'),
+    getManagementMembers(),
   ])
   if (invitations.error) throw new Error(getBookingErrorMessage(invitations.error))
-  if (administrators.error) throw new Error(getBookingErrorMessage(administrators.error))
-  if (!Array.isArray(administrators.data)) throw new Error('Liste des administrateurs invalide.')
-  return { invitations: invitations.data, administrators: administrators.data as Administrator[] }
+  return { invitations: invitations.data, members: administrators,
+    administrators: administrators.filter(m => m.general_admin).map(m => ({ user_id: m.user_id, email: m.email, created_at: '' })) }
 }
 export async function getHistory(page: number, entity: string) {
   let query = client().from('admin_history').select('*')

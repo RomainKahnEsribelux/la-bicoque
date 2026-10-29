@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SubmitEvent } from 'react'
-import { addOwnerBlock, confirmBooking, getMyBookingRequests, getOwnerOccupiedPeriods, isSiteOwner, rejectBooking, removeOwnerBlock } from '../lib/bookings'
+import { addOwnerBlock, confirmBooking, getMyBookingRequests, getOwnerOccupiedPeriods, rejectBooking, removeOwnerBlock } from '../lib/bookings'
 import type { BookingRequest, OwnerOccupiedPeriod } from '../lib/bookings'
 import { branches, brusselsToday, dateBefore, familyYear, getFamilySettings, getPriorities, saveFamilySettings, validateBookingRate } from '../lib/family'
 import { supabase } from '../lib/supabase'
 import { getBookingErrorMessage } from '../lib/bookings'
 import MemberManagement from '../components/MemberManagement'
 import { formatMoney, workflowAction } from '../lib/memberWorkflows'
+import { getCapabilities } from '../lib/management'
 
 interface Member { user_id: string; first_name: string; last_name: string; branch: string }
 interface Delivery { id: string; kind: string; state: string; attempts: number; last_error: string | null; created_at: string }
@@ -23,6 +24,7 @@ function centsFrom(value: string) {
 
 export default function Owner() {
   const [owner, setOwner] = useState<boolean | null>(null)
+  const [generalAdmin, setGeneralAdmin] = useState(false)
   const [requests, setRequests] = useState<BookingRequest[]>([])
   const [periods, setPeriods] = useState<OwnerOccupiedPeriod[]>([])
   const [members, setMembers] = useState<Member[]>([])
@@ -41,14 +43,23 @@ export default function Owner() {
   const [revision, setRevision] = useState(0)
 
   const reload = useCallback(async () => {
-    const allowed = await isSiteOwner()
+    const capabilities = await getCapabilities()
+    const allowed = capabilities.manage_bookings
     setOwner(allowed)
-    if (!allowed) return
+    setGeneralAdmin(capabilities.general_admin)
+    if (!allowed) {
+      setRequests([])
+      setPeriods([])
+      setMembers([])
+      setDeliveries([])
+      return false
+    }
     if (!supabase) throw new Error('Supabase indisponible.')
     const [nextRequests, nextPeriods, settings, priorities, profiles, emails] = await Promise.all([
       getMyBookingRequests(), getOwnerOccupiedPeriods(), getFamilySettings(), getPriorities(),
       supabase.from('member_profiles').select('user_id,first_name,last_name,branch').order('last_name').returns<Member[]>(),
-      supabase.from('email_outbox').select('id,kind,state,attempts,last_error,created_at').order('created_at', { ascending: false }).limit(50).returns<Delivery[]>(),
+      capabilities.general_admin ? supabase.from('email_outbox').select('id,kind,state,attempts,last_error,created_at').order('created_at', { ascending: false }).limit(50).returns<Delivery[]>()
+        : Promise.resolve({ data: [], error: null }),
     ])
     if (profiles.error) throw new Error(getBookingErrorMessage(profiles.error))
     if (emails.error) throw new Error(getBookingErrorMessage(emails.error))
@@ -60,6 +71,7 @@ export default function Owner() {
     setTransfer(settings.transfer_instructions ?? '')
     setBranch(priorities.find(p => p.start_year === year)?.branch ?? '')
     setRevision(value => value + 1)
+    return true
   }, [year])
 
   useEffect(() => {
@@ -102,7 +114,7 @@ export default function Owner() {
     {notice && <p role="status" className="rounded bg-green-50 p-4 text-green-900">{notice}</p>}
     <button className={buttonClass} disabled={busy} onClick={() => void action(reload, 'Données actualisées.')}>Actualiser</button>
     {owner === null && !error && <p role="status">Vérification des droits...</p>}
-    {owner === false && <p>Cette page est réservée aux administrateurs. Leur attribution se fait par une procédure sécurisée, pas par auto-activation.</p>}
+    {owner === false && <p>Cette page est réservée aux administrateurs généraux et aux responsables de branche. Leur attribution se fait dans la liste des membres, pas par auto-activation.</p>}
     {owner && <>
       <form onSubmit={save} className="space-y-4 rounded-2xl bg-white/85 p-6">
         <h2 className="text-xl font-semibold">Priorité familiale et récapitulatifs de virement</h2>
@@ -185,12 +197,12 @@ export default function Owner() {
         </li>)}</ul>
       </section>
 
-      <section className="space-y-3 rounded-2xl bg-white/85 p-6">
+      {generalAdmin && <section className="space-y-3 rounded-2xl bg-white/85 p-6">
         <h2 className="text-xl font-semibold">Profils des membres</h2>
         <p>Une correction de branche ne modifie pas les demandes déjà enregistrées.</p>
         {members.map(member => <MemberEditor key={member.user_id} member={member} busy={busy} run={action} />)}
-      </section>
-      <section className="space-y-3 rounded-2xl bg-white/85 p-6">
+      </section>}
+      {generalAdmin && <section className="space-y-3 rounded-2xl bg-white/85 p-6">
         <h2 className="text-xl font-semibold">Suivi des 50 derniers e-mails</h2>
         <p>Un état « sent » indique l’acceptation par le fournisseur, pas la réception ni le paiement. Un envoi non résolu après 23 h nécessite une vérification manuelle pour éviter les doublons.</p>
         {deliveries.length === 0 && <p>Aucun envoi enregistré.</p>}
@@ -205,8 +217,8 @@ export default function Owner() {
             }, 'Nouvelle tentative autorisée.')
           }}>Réautoriser après vérification</button>}
         </li>)}</ul>
-      </section>
-      <MemberManagement revision={revision} />
+      </section>}
+      <MemberManagement revision={revision} generalAdmin={generalAdmin} onRolesChanged={reload} />
     </>}
   </section>
 }

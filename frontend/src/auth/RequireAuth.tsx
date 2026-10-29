@@ -1,7 +1,8 @@
 ﻿import { useEffect, useState } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { checkIsSiteOwner, getMyProfile, isProfileComplete } from '../lib/profiles'
+import { getMyProfile, isProfileComplete } from '../lib/profiles'
+import { canManageBookings } from '../lib/management'
 
 const statusClass = 'rounded-2xl border border-[#5b5d43]/15 bg-white/80 p-6'
 const alertClass = 'rounded-2xl border border-red-300 bg-red-50 p-6 text-red-700'
@@ -25,7 +26,7 @@ export default function RequireAuth() {
 
 /**
  * Place inside <RequireAuth />. Redirects to /profil until the member profile is complete.
- * With allowOwner, the site owner may pass with an incomplete profile (bootstrap admin on /gestion).
+ * With allowOwner, booking managers may pass with an incomplete profile (bootstrap admin on /gestion).
  * Owner pages must still enforce rights server-side; this only skips the profile redirect.
  */
 export function ProfileRequired({ allowOwner = false }: { allowOwner?: boolean }) {
@@ -40,7 +41,7 @@ export function ProfileRequired({ allowOwner = false }: { allowOwner?: boolean }
     let active = true
     getMyProfile(userId)
       .then(async profile => {
-        const complete = isProfileComplete(profile) || (allowOwner && await checkIsSiteOwner())
+        const complete = isProfileComplete(profile) || (allowOwner && await canManageBookings())
         if (active) setState({ userId, complete })
       })
       .catch((err: unknown) => {

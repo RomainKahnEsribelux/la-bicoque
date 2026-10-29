@@ -19,6 +19,9 @@ changement des variables. Ne jamais utiliser de clé secrète dans une variable 
 - `/` : présentation publique de La Bicoque et des Bicoquins.
 - `/a-propos`, `/contact` : présentation/informations pratiques ; aucun ancien
   contact n'est republié sans validation.
+- `/activites` : public, liens vers la programmation officielle du cinéma Le
+  Versailles et les promenades/RAVeL de Stavelot. Le cinéma bloque les iframes
+  (`X-Frame-Options: SAMEORIGIN`) ; pas de proxy ni de copie des séances.
 - `/inscription`, `/connexion`, `/auth/callback` : inscription avec confirmation e-mail.
 - `/mot-de-passe-oublie`, `/nouveau-mot-de-passe` : récupération et définition
   du mot de passe, avec vérification de session côté Supabase.
@@ -31,6 +34,14 @@ changement des variables. Ne jamais utiliser de clé secrète dans une variable 
   blocages, profils, tarif de virement et suivi des e-mails.
 - `/histoires`, `/histoires/:slug`, `/documents` : archives privées après import,
   accessibles aux comptes à e-mail confirmé. Les fichiers sont dans Storage privé.
+
+Gestion est aussi accessible aux responsables de branche via la capacité serveur
+`can_manage_bookings`, sans étendre `is_site_owner` (admins généraux uniquement).
+La liste des membres gère séparément les rôles cumulatifs ; les sections de
+correction des profils et d'e-mails sont réservées aux admins généraux.
+Contacts publics : `public_contacts`, alimenté par SQL de confiance avec les
+coordonnées autorisées, jamais par une lecture publique des comptes Auth.
+Les responsables sont chargés via `get_branch_directory` pour les sessions vérifiées.
 
 La base et les fonctions serveur font autorité : masquer un bouton n'est pas une
 autorisation. Voir [les règles de réservation](../docs/reservation.md) et

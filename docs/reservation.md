@@ -3,7 +3,7 @@
 ## Comptes et accès
 
 L'inscription est ouverte, avec confirmation de l'e-mail et un profil obligatoire
-(prénom, nom, branche **Max-Léo**, **Gustave** ou **Hélène**). Seul un admin peut
+(prénom, nom, branche **Max-Léo**, **Gustave** ou **Hélène**). Seul un admin général peut
 corriger la branche ensuite. Le nom et la branche sont conservés dans chaque
 demande : une correction du profil ne modifie pas les demandes existantes.
 
@@ -17,7 +17,7 @@ Deux admins maximum, invitations admin en attente comprises. Dans Gestion, un
 admin peut enregistrer une invitation membre ou réserver la deuxième place admin.
 L'adresse est liée côté serveur au compte après vérification de l'e-mail, jamais
 à un rôle choisi à l'inscription. Une invitation non acceptée peut être annulée ;
-un admin actif ne peut pas être révoqué depuis le site dans cette version.
+un admin général actif peut être révoqué par un autre admin général, sauf le dernier.
 Les invitations n'envoient aucun e-mail tant que le parcours SMTP n'est pas activé.
 L'ancienne auto-activation du propriétaire est désactivée dans la nouvelle
 migration, avant l'ouverture des inscriptions. Voir [la mise en service](../supabase/README.md).
@@ -57,9 +57,36 @@ confirmer avec la gestion.
 Le journal serveur commence à son installation. Il conserve acteur, date,
 référence et changements métier des actions admin, membre et automatiques ;
 il n'invente pas le passé et ne copie ni secrets ni coordonnées bancaires.
-Seuls les admins le consultent, sans possibilité de modifier ses lignes.
+Les admins généraux et responsables le consultent, sans possibilité de modifier ses lignes.
 
-## Priorité et approbation
+## Administrateurs généraux et responsables
+
+Deux administrateurs généraux maximum (invitations en attente comprises) et
+trois places de responsable des réservations : une pour chaque branche.
+Un admin général peut cumuler une responsabilité de sa propre branche.
+Les responsables sont nommés parmi les comptes vérifiés ayant un profil complet
+de la branche concernée ; les places non attribuées restent « À désigner ».
+
+Les responsables gèrent **toutes les réservations**, sans restriction de branche :
+approbation/refus, annulations motivées, tarifs, paiements, blocages, priorité
+annuelle et paramètres de virement. Ils peuvent remplacer les responsables des
+trois branches, mais pas nommer/retirer un admin général, corriger la branche
+d'un profil, écrire dans les archives ni accéder au suivi des e-mails.
+Les invitations de membres restent possibles, sans envoi.
+
+Dans Gestion, la liste des membres permet la recherche et les filtres par branche
+et rôle. Les rôles sont cumulatifs, pas un choix exclusif dans un seul sélecteur.
+Toute nomination, remplacement ou retrait demande un motif et une confirmation.
+Le remplacement vérifie le titulaire attendu et échoue s'il a changé.
+Seuls les admins généraux modifient les admins généraux ; le dernier ne peut pas
+être retiré. Un retrait désactive aussi l'autorisation de reprovisionnement.
+Retirer/transférer une responsabilité avant de modifier la branche de son titulaire.
+
+Les contacts généraux explicitement autorisés sont publics. L'annuaire nominatif
+des responsables n'est accessible qu'aux comptes avec e-mail confirmé ; aucune
+adresse Auth n'est automatiquement publiée.
+
+## Priorité et approbation (règles)
 
 - Année familiale du **1er juillet au 30 juin** ; Hélène pour **2026–2027**.
 - L'année familiale contenant l'arrivée détermine la priorité de tout le séjour.

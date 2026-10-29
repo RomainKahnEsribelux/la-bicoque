@@ -18,6 +18,7 @@ import MyStays from './pages/MyStays'
 import PracticalStay from './pages/PracticalStay'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
+import Activities from './pages/Activities'
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/nouveau-mot-de-passe" element={<ResetPassword />} />
             <Route path="/a-propos" element={<About />} />
             <Route path="/contact" element={<Contact />} />
+            <Route path="/activites" element={<Activities />} />
             <Route element={<RequireAuth />}>
               <Route path="/profil" element={<Profile />} />
               <Route path="/histoires" element={<Stories />} />

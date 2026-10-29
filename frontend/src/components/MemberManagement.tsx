@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import type { SubmitEvent } from 'react'
 import { getHistory, getMemberManagement, workflowAction } from '../lib/memberWorkflows'
 import type { Administrator, HistoryEntry, Invitation } from '../lib/memberWorkflows'
+import MemberRoles from './MemberRoles'
+import { notifyRoleChange } from '../lib/management'
+import type { ManagedMember } from '../lib/management'
 
 const button = 'rounded-xl bg-indigo-700 px-4 py-2 text-white disabled:opacity-50'
 const input = 'rounded-xl border border-slate-400 bg-white p-3'
@@ -9,9 +12,10 @@ const entities: Record<string, string> = {
   booking_requests: 'Séjours et paiements', occupied_periods: 'Occupations et blocages',
   house_settings: 'Paramètres', family_priorities: 'Priorités', member_profiles: 'Profils',
   member_invitations: 'Invitations', site_owners: 'Administrateurs',
+  branch_managers: 'Responsables de branche',
 }
 
-export default function MemberManagement({ revision }: { revision: number }) {
+export default function MemberManagement({ revision, generalAdmin, onRolesChanged }: { revision: number; generalAdmin: boolean; onRolesChanged: () => Promise<boolean> }) {
   const [administrators, setAdministrators] = useState<Administrator[]>([])
   const [invitations, setInvitations] = useState<Invitation[]>([])
   const [entries, setEntries] = useState<HistoryEntry[]>([])
@@ -20,12 +24,15 @@ export default function MemberManagement({ revision }: { revision: number }) {
   const [hasMore, setHasMore] = useState(false)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('member')
+  const [invitationReason, setInvitationReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [members, setMembers] = useState<ManagedMember[]>([])
   const reload = useCallback(async () => {
     const [management, history] = await Promise.all([getMemberManagement(), getHistory(page, entity)])
     setAdministrators(management.administrators)
+    setMembers(management.members)
     setInvitations(management.invitations)
     setEntries(history.entries)
     setHasMore(history.hasMore)
@@ -47,7 +54,8 @@ export default function MemberManagement({ revision }: { revision: number }) {
   }
   async function invite(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    await perform('owner_invite_member', { p_email: email.trim(), p_role: role },
+    if (role === 'admin' && !window.confirm('Réserver une place admin général pour cette adresse ? Si son compte est déjà vérifié, les droits sont attribués immédiatement.')) return
+    await perform('owner_invite_member', { p_email: email.trim(), p_role: role, p_reason: invitationReason.trim() },
       'Invitation enregistrée. Aucun e-mail envoyé. Pour un compte déjà vérifié, les droits demandés sont appliqués immédiatement.')
   }
   async function copyLink() {
@@ -58,11 +66,15 @@ export default function MemberManagement({ revision }: { revision: number }) {
     } catch { setError('Copie impossible. Copie manuellement le lien affiché ci-dessous.') }
   }
   return <>
+    <MemberRoles members={members} generalAdmin={generalAdmin} onChanged={async () => {
+      notifyRoleChange()
+      if (await onRolesChanged()) await reload()
+    }} />
     <section className="space-y-4 rounded-2xl bg-white/85 p-6">
       <h2 className="text-xl font-semibold">Membres et administrateurs</h2>
       {error && <p role="alert" className="text-red-800">{error}</p>}
       {notice && <p role="status" className="text-green-900">{notice}</p>}
-      <p>Deux administrateurs maximum, invitations admin en attente comprises. Aucun droit ne peut être choisi par un nouvel inscrit.</p>
+      <p>Deux administrateurs généraux maximum, invitations admin en attente comprises, et trois places de responsable de branche. Aucun droit ne peut être choisi par un nouvel inscrit.</p>
       <ul>{administrators.map(admin => <li key={admin.user_id}>{admin.email} — administrateur</li>)}</ul>
       <form onSubmit={invite} className="flex flex-wrap items-end gap-3">
         <label className="grid gap-1">Adresse e-mail
@@ -70,9 +82,12 @@ export default function MemberManagement({ revision }: { revision: number }) {
         </label>
         <label className="grid gap-1">Rôle
           <select value={role} onChange={e => setRole(e.target.value)} className={input}>
-            <option value="member">Membre</option><option value="admin">Administrateur</option>
+            <option value="member">Membre</option>{generalAdmin && <option value="admin">Administrateur général</option>}
           </select>
         </label>
+        {generalAdmin && role === 'admin' && <label className="grid gap-1">Motif de nomination
+          <input required maxLength={500} value={invitationReason} onChange={e => setInvitationReason(e.target.value)} className={input} />
+        </label>}
         <button disabled={busy} className={button}>Enregistrer l’invitation</button>
       </form>
       <p className="rounded bg-amber-50 p-3">Envois d’invitations désactivés en attendant le SMTP. L’invitation réserve les droits associés à cette adresse, mais ne crée pas de compte et n’envoie aucun message.</p>

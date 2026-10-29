@@ -56,7 +56,7 @@ export function getBookingErrorMessage(error: { message: string; code?: string }
     booking_times_must_be_on_hour: 'Choisissez une heure pleine pour l’arrivée et le départ.',
     owner_claim_requires_single_user: 'Le propriétaire doit activer son compte avant la création d’autres comptes.',
     owner_already_claimed: 'Le compte propriétaire a déjà été activé.',
-    owner_required: 'Cette action est réservée au propriétaire.',
+    owner_required: 'Cette action est réservée aux administrateurs généraux.',
     invalid_house_capacity: 'La capacité doit être un nombre positif.',
     booking_request_not_found: 'Cette demande n’existe plus.',
     booking_request_not_pending: 'Cette demande a déjà été traitée.',
@@ -78,6 +78,12 @@ export function getBookingErrorMessage(error: { message: string; code?: string }
     administrator_slots_full: 'Les deux places administrateur sont déjà attribuées ou réservées.',
     already_administrator: 'Ce compte est déjà administrateur.',
     invitation_not_cancellable: 'Cette invitation a déjà été acceptée ou annulée.',
+    manager_required: 'Cette action est réservée aux administrateurs généraux et responsables des réservations.',
+    manager_branch_mismatch: 'Le responsable doit avoir un profil complet et une adresse confirmée, et appartenir à cette branche.',
+    remove_manager_before_branch_change: 'Retire ou transfère la responsabilité de branche avant de corriger ce profil.',
+    role_assignment_changed: 'Les rôles ont changé. Actualise la liste puis confirme à nouveau.',
+    last_administrator_required: 'Impossible de retirer le dernier administrateur général.',
+    verified_member_required: 'Choisis un membre ayant confirmé son adresse e-mail.',
   }
 
   if (error.message.includes('account_email_required')) {
